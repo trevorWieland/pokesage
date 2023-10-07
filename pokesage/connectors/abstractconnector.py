@@ -6,7 +6,7 @@ from ..states.choices import AnyChoice
 
 from aiohttp import ClientSession
 from enum import Enum, unique
-from typing import Generator, Union, List, Optional, Tuple
+from typing import AsyncGenerator, Union, List, Optional, Tuple
 from pydantic import BaseModel, Field
 
 
@@ -26,7 +26,8 @@ class ProgressState(Enum):
     TEAM_ORDER = 1
     MOVE = 2
     SWITCH = 3
-    END = 4
+    GAME_END = 4
+    FULL_END = 5
 
 
 class ConnectionTermination(BaseModel):
@@ -49,7 +50,7 @@ class Connector(ABC):
     @abstractmethod
     async def launch_connection(
         self, session: ClientSession
-    ) -> Generator[Tuple[ProgressState, BattleState], AnyChoice, ConnectionTermination]:
+    ) -> AsyncGenerator[Tuple[ProgressState, Union[BattleState, ConnectionTermination, None]], AnyChoice]:
         """
         This function should be a generator that:
         - yields BattleState
