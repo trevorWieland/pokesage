@@ -55,7 +55,6 @@ class Connector(ABC):
         This function should be a generator that:
         - yields BattleState
         - accepts Choice as send (See Choice type alias for options)
-        - returns a ConnectionTermination (Used when objective complete, or on error state)
 
         This function should be instantiated by the connection handling subclass, not the sage
         """

@@ -1,1 +1,3 @@
 from .abstractprocessor import Processor
+from .showdownprocessor import ShowdownProcessor
+from .showdownminimumprocessor import ShowdownMinimumProcessor

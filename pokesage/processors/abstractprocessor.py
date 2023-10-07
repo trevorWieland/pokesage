@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
 
 
-class Processor:
+class Processor(ABC):
     """ """
