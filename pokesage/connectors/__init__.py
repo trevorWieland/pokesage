@@ -1,1 +1,1 @@
-from .abstractconnector import Connector
+from .abstractconnector import Connector, ConnectionTermination, ConnectionTerminationCode, ProgressState
