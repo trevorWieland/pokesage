@@ -1,7 +1,8 @@
-from .abstractsage import AbstractSage
-from ..states.choices import TeamOrderChoice, MoveDecisionChoice, ForceSwitchChoice, DefaultChoice
-from ..states.battlestate import BattleState
 from aiohttp import ClientSession
+
+from ..battle.choices import DefaultChoice, ForceSwitchChoice, MoveDecisionChoice, TeamOrderChoice
+from ..battle.state import BattleState
+from .abstractsage import AbstractSage
 
 
 class RandomSage(AbstractSage):

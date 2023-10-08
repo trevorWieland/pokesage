@@ -1,1 +1,2 @@
-from .abstractconnector import Connector, ConnectionTermination, ConnectionTerminationCode, ProgressState
+from .abstractconnector import ConnectionTermination, ConnectionTerminationCode, Connector
+from .websocketconnector import WebsocketConnector

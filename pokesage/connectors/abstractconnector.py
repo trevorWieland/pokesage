@@ -1,13 +1,13 @@
 from abc import ABC, abstractmethod
-
-from ..processors import Processor
-from ..states.battlestate import BattleState
-from ..states.choices import AnyChoice
+from enum import Enum, unique
+from typing import AsyncGenerator, Optional, Tuple, Union
 
 from aiohttp import ClientSession
-from enum import Enum, unique
-from typing import AsyncGenerator, Union, List, Optional, Tuple
 from pydantic import BaseModel, Field
+
+from ..battle.choices import AnyChoice
+from ..battle.state import BattleState
+from ..processors import ProgressState
 
 
 @unique
@@ -18,16 +18,6 @@ class ConnectionTerminationCode(Enum):
     CONNECTION_ERROR = 3
     PROCESSOR_ERROR = 4
     OTHER_ERROR = 5
-
-
-@unique
-class ProgressState(Enum):
-    NO_ACTION = 0
-    TEAM_ORDER = 1
-    MOVE = 2
-    SWITCH = 3
-    GAME_END = 4
-    FULL_END = 5
 
 
 class ConnectionTermination(BaseModel):

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pokesage"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pokemon Playing AI training tools built with a modern, async, type-hinting stack"
 authors = ["Trevor Wieland <trevor_wieland@mac.com>"]
 license = "MIT"
@@ -9,13 +9,19 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.9"
 pydantic = "^2.4.2"
-aiohttp = "^3.8.5"
+aiohttp = "3.9.0b0"
 tqdm = "^4.66.1"
+poketypes = {path = "../poketypes"}
+beartype = "^0.16.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.2"
 notebook = "^7.0.4"
+isort = "^5.12.0"
+black = "^23.9.1"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry_bumpversion.file."pokesage/__init__.py"]

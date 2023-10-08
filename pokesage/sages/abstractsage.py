@@ -1,9 +1,12 @@
 from abc import ABC, abstractmethod
-from ..connectors import Connector, ConnectionTerminationCode, ConnectionTermination, ProgressState
-from ..states.choices import TeamOrderChoice, MoveDecisionChoice, ForceSwitchChoice
-from ..states.battlestate import BattleState
 from typing import Optional
+
 from aiohttp import ClientSession
+
+from ..battle.choices import ForceSwitchChoice, MoveDecisionChoice, TeamOrderChoice
+from ..battle.state import BattleState
+from ..connectors import ConnectionTermination, ConnectionTerminationCode, Connector
+from ..processors import ProgressState
 
 
 class AbstractSage(ABC):
@@ -48,11 +51,14 @@ class AbstractSage(ABC):
         Communicates with the game using the connector.launch_connection generator
         """
 
-        connection = await self.connector.launch_connection(session)
+        connection = self.connector.launch_connection(session)
         action = None
 
         while True:
             progress_state, data = await connection.asend(action)
+
+            print(progress_state, data)
+            print()
 
             if progress_state == ProgressState.TEAM_ORDER:
                 battle_state: BattleState = data

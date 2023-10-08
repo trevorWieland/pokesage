@@ -1,3 +1,2 @@
-from .abstractprocessor import Processor
+from .abstractprocessor import Processor, ProgressState
 from .showdownprocessor import ShowdownProcessor
-from .showdownminimumprocessor import ShowdownMinimumProcessor
