@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum, unique
-from typing import AsyncGenerator, Optional, Tuple, Union
+from beartype.typing import AsyncGenerator, Optional, Tuple, Union
 
 from aiohttp import ClientSession
 from pydantic import BaseModel, Field

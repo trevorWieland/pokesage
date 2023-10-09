@@ -1,4 +1,4 @@
-from typing import Optional
+from beartype.typing import Optional
 
 from poketypes.dex import clean_forme
 from poketypes.showdown.battlemessage import *
@@ -24,6 +24,25 @@ class ShowdownProcessor(Processor):
         Remember, everything that you want to keep should be stored in self.battle / a state inside self.battle.battle_states!
         self.log should only be used for troubleshooting measures, or other logging purposes
         """
+
+        bm = BattleMessage.from_message(message_str)
+
+        try:
+            progress_state = await self.process_bm(bm)
+        except Exception as e:
+            print("Log so far:")
+            for m in self.log:
+                print(m)
+            print()
+            print("Current Battle State:")
+            print(self.battle.battle_states[-1].model_dump_json(indent=4))
+            print()
+            print("Message that caused error:")
+            print(bm.BATTLE_MESSAGE)
+            print()
+            raise e
+
+        return progress_state
 
     async def preprocess_bm(self, bm: BattleMessage) -> Optional[ProgressState]:
         """
@@ -1060,7 +1079,8 @@ class ShowdownProcessor(Processor):
         """
 
         # This signifies that the game has started, so we need to initialize our first state
-        self.battle.battle_states.append(BattleState(turn=1))
+        bs = BattleState(turn=1)
+        self.battle.battle_states.append(bs)
 
     async def processbm_title(self, bm: BattleMessage_title) -> None:
         """

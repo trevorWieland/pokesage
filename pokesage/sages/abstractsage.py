@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional
-
+from tqdm.asyncio import tqdm
 from aiohttp import ClientSession
 
 from ..battle.choices import ForceSwitchChoice, MoveDecisionChoice, TeamOrderChoice
@@ -28,25 +28,36 @@ class AbstractSage(ABC):
         - The player will have to choose which switches to make, or of course, resign
     """
 
-    def __init__(self, name: str, connector: Connector, session: Optional[ClientSession] = None) -> None:
+    def __init__(
+        self, name: str, connector: Connector, session: Optional[ClientSession] = None, use_tqdm: bool = False
+    ) -> None:
         """ """
 
         self.name = name
         self.connector = connector
         self.session = session
+        self.use_tqdm = use_tqdm
 
     async def launch(self) -> None:
         """
         Launches the associated connector object, as well as the aiohttp client session if needed
         """
 
+        if self.use_tqdm:
+            pbar = tqdm(total=self.connector.total_battles)
+        else:
+            pbar = None
+
         if self.session is not None:
-            await self.play(session=self.session)
+            await self.play(session=self.session, pbar=pbar)
         else:
             async with ClientSession() as session:
-                await self.play(session=session)
+                await self.play(session=session, pbar=pbar)
 
-    async def play(self, session: ClientSession) -> None:
+        if self.use_tqdm:
+            pbar.close()
+
+    async def play(self, session: ClientSession, pbar: Optional[tqdm]) -> None:
         """
         Communicates with the game using the connector.launch_connection generator
         """
@@ -56,9 +67,6 @@ class AbstractSage(ABC):
 
         while True:
             progress_state, data = await connection.asend(action)
-
-            print(progress_state, data)
-            print()
 
             if progress_state == ProgressState.TEAM_ORDER:
                 battle_state: BattleState = data
@@ -73,14 +81,26 @@ class AbstractSage(ABC):
                 # Not particularly helpful in this use case, but if built as a gymnasium env, this would provide `terminated`
                 # Note: This means that the individual game has ended, *NOT* that the connection is closed.
                 action = None
+
+                if pbar is not None:
+                    pbar.update(1)
             elif progress_state == ProgressState.FULL_END:
                 # This tells us that the connection itself has been ended
                 action = None
+
+                print(data.model_dump_json(indent=2))
+
                 break
             else:
                 # This means a NO_ACTION state was returned.
                 # since no action is needed, we can just continue
                 action = None
+
+            # print(progress_state)
+            if action is not None:
+                # print(f"Sending: {type(action)}")
+                # print(action.model_dump_json(indent=2))
+                pass
 
     @abstractmethod
     async def team_choice(self, session: ClientSession, battle_state: BattleState) -> TeamOrderChoice:

@@ -28,7 +28,7 @@ class Processor(ABC):
     BATTLE_CLASS: Type[Battle] = Battle
     BATTLE_STATE_CLASS: Type[BattleState] = BattleState
 
-    def __init__(self, battle_id: str, session: ClientSession) -> None:
+    def __init__(self, session: ClientSession, battle_id: str, player_name: str) -> None:
         """
         Initialize the Processor with a battle_id, as well as the session to use for any http requests
         """
@@ -36,8 +36,7 @@ class Processor(ABC):
         self.battle_id = battle_id
         self.session = session
 
-        self.battle: Battle = self.BATTLE_CLASS(battle_actions=[], battle_states=[])
-
+        self.battle: Battle = self.BATTLE_CLASS(battle_actions=[], battle_states=[], player_name=player_name)
         self.log = []
 
     @abstractmethod

@@ -1,8 +1,19 @@
 from aiohttp import ClientSession
 
-from ..battle.choices import DefaultChoice, ForceSwitchChoice, MoveDecisionChoice, TeamOrderChoice
+from ..battle.choices import (
+    DefaultChoice,
+    ForceSwitchChoice,
+    MoveDecisionChoice,
+    TeamOrderChoice,
+    TeamChoice,
+    PassChoice,
+    SwitchChoice,
+)
 from ..battle.state import BattleState
 from .abstractsage import AbstractSage
+
+from beartype.door import is_bearable
+import random
 
 
 class RandomSage(AbstractSage):
@@ -19,9 +30,19 @@ class RandomSage(AbstractSage):
         This is the equivalent to picking /choose default on showdown or running out of time in VGC
         """
 
-        # TODO: Implement random team ordering
+        # TODO: Implement random sub-team ordering (ex: of the 6 options, pick 4)
 
-        return DefaultChoice()
+        assert is_bearable(
+            battle_state.battle_choice, TeamChoice
+        ), f"Expected to receive a TeamChoice to decide from but got: {type(battle_state.battle_choice)} instead!"
+
+        team_order = battle_state.battle_choice.team_order
+
+        print(team_order)
+
+        random.shuffle(team_order)
+
+        return TeamChoice(team_order=team_order)
 
     async def move_choice(self, session: ClientSession, battle_state: BattleState) -> MoveDecisionChoice:
         """
@@ -30,9 +51,17 @@ class RandomSage(AbstractSage):
         This is the equivalent to picking /choose default on showdown or running out of time in VGC
         """
 
-        # TODO: Implement random move sampling
+        assert is_bearable(battle_state.battle_choice, list), "The given choices should be a list!"
 
-        return DefaultChoice()
+        selected_choices = []
+        for slot_choices in battle_state.battle_choice:
+            if is_bearable(slot_choices, PassChoice):
+                selected_choices.append(slot_choices)
+            else:
+                valid_choices = [c for c in slot_choices if (not is_bearable(c, SwitchChoice) or c not in slot_choices)]
+                selected_choices.append(valid_choices[random.randint(0, len(valid_choices) - 1)])
+
+        return selected_choices
 
     async def forceswitch_choice(self, session: ClientSession, battle_state: BattleState) -> ForceSwitchChoice:
         """
@@ -41,9 +70,17 @@ class RandomSage(AbstractSage):
         This is the equivalent to picking /choose default on showdown or running out of time in VGC
         """
 
-        # TODO: Implement random move sampling
+        assert is_bearable(battle_state.battle_choice, list), "The given choices should be a list!"
 
-        return DefaultChoice()
+        selected_choices = []
+        for slot_choices in battle_state.battle_choice:
+            if is_bearable(slot_choices, PassChoice):
+                selected_choices.append(slot_choices)
+            else:
+                valid_choices = [c for c in slot_choices if (not is_bearable(c, SwitchChoice) or c not in slot_choices)]
+                selected_choices.append(valid_choices[random.randint(0, len(valid_choices) - 1)])
+
+        return selected_choices
 
 
 class Bronius(RandomSage):

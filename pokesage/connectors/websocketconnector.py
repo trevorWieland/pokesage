@@ -1,9 +1,15 @@
 import json
-from typing import AsyncGenerator, Dict, List, Literal, Optional, Tuple, Type, Union
+from beartype.typing import AsyncGenerator, Dict, List, Literal, Optional, Tuple, Type, Union
 from urllib.parse import quote
 
 from aiohttp import ClientSession, ClientWebSocketResponse, WSMsgType
-from poketypes.showdown.showdownmessage import Message, Message_challstr, MType
+from poketypes.showdown.showdownmessage import (
+    Message,
+    Message_challstr,
+    MType,
+    Message_updateuser,
+    Message_updatesearch,
+)
 from yarl import URL
 from beartype.door import is_bearable
 
@@ -57,11 +63,16 @@ class WebsocketConnector(Connector):
         self.showdown_uri = showdown_uri
 
         # Parameter initialization
-        self.logged_in = False
-        self.valid_formats = []
+        self.logged_in: bool = False
+        self.last_search: Optional[Message_updatesearch] = None
+        self.valid_formats: List[str] = []
 
+        self.pending_challenges: Dict[str, str] = {}
         self.battle_processors: Dict[str, ShowdownProcessor] = {}
         self.completed_battles: Dict[str, Battle] = {}
+
+        self.pending_battle_amt: int = 0
+        self.active_battle_amt: int = 0
 
     async def launch_connection(
         self, session: ClientSession
@@ -85,21 +96,19 @@ class WebsocketConnector(Connector):
                         # In this case this is a battle message block
                         battle_id = message.strip().split("\n")[0][1:]
 
-                        for m in message.strip().split("\n"):
-                            print(f"Received battle message:\n{m}")
+                        for m in message.strip().split("\n")[1:]:
                             progress_state, data = await self.handle_battle_message(session, ws, battle_id, m)
-                            if is_bearable(data, ConnectionTermination):
-                                conn_term = data
-                                break
+
+                            if data is None:
+                                continue
 
                             action = yield progress_state, data
-                            conn_term = await self.process_action(ws, progress_state, action)
+                            conn_term = await self.process_action(ws, progress_state, action, battle_id)
                             if conn_term is not None:
                                 break
                     elif message[0] == "|":
                         # In this case this is a standard message block
                         for m in message.strip().split("\n"):
-                            print(f"Received standard message:\n{m}")
                             (
                                 progress_state,
                                 conn_term,
@@ -150,7 +159,22 @@ class WebsocketConnector(Connector):
 
         if msg.MTYPE == MType.updateuser:
             self.logged_in = msg.NAMED
-            # TODO: Initiate objective if logged in
+
+            if self.logged_in and self.last_search is not None:
+                conn_term = await self.handle_updatesearch(session, ws, self.last_search)
+                if conn_term is not None:
+                    return ProgressState.FULL_END, conn_term
+        elif msg.MTYPE == MType.updatesearch:
+            if self.objective == "ladder":
+                self.pending_battle_amt = len(msg.SEARCHING)
+            self.active_battle_amt = 0 if msg.GAMES is None else len(msg.GAMES)
+
+            if self.logged_in:
+                conn_term = await self.handle_updatesearch(session, ws, msg)
+                if conn_term is not None:
+                    return ProgressState.FULL_END, conn_term
+            else:
+                self.last_search = msg
         elif msg.MTYPE == MType.formats:
             self.valid_formats = [f.lower().replace("[", "").replace("]", "").replace(" ", "") for f in msg.FORMATS]
         elif msg.MTYPE == MType.challstr:
@@ -171,6 +195,52 @@ class WebsocketConnector(Connector):
             pass
 
         return ProgressState.NO_ACTION, None
+
+    async def handle_updatesearch(
+        self, session: ClientSession, ws: ClientWebSocketResponse, message: Message_updatesearch
+    ) -> Optional[ConnectionTermination]:
+        """
+        Handles the updatesearch message. This is one of the main objective-processing points, the other being `pm`
+
+        Returns either None, or a ConnectionTermination if the objective is completed
+        """
+
+        if len(self.completed_battles.keys()) >= self.total_battles and message.GAMES is None:
+            # In this case we've completed the needed amount and all games are over
+            return ConnectionTermination(
+                code=ConnectionTerminationCode.OBJECTIVE_COMPLETE, message="REQUIRED NUMBER OF GAMES COMPLETED"
+            )
+        elif len(self.completed_battles.keys()) >= self.total_battles:
+            # In this case we've somehow completed the necessary amt of battles but not all games are over?
+            return None
+        elif self.pending_battle_amt + self.active_battle_amt >= self.max_concurrent_battles:
+            # In this case we already have too many concurrent games, so we skip creating any new ones
+            return None
+
+        if self.objective == "accept":
+            # if we're just trying to accept challenges, we don't want to initiate anything ourselves
+            pass
+        elif self.objective == "challenge":
+            # TODO: Add support for multiple formats
+            for u in self.whitelist_users:
+                if u not in self.pending_challenges.keys():
+                    await ws.send_str(f"|/challenge {u}, {self.target_format}")
+                    self.pending_challenges[u] = self.target_format
+                    self.pending_battle_amt += 1
+                    break
+        elif self.objective == "ladder":
+            # We can ladder as long as we don't already have an ongoing or searching match for this format
+            # We can also ladder once per format simulatneously, though for now we stick to just one format
+            # TODO: Add support for multi-format searching instead of only one format
+
+            if self.target_format not in message.SEARCHING and (
+                message.GAMES is None or all([self.target_format not in g for g in message.GAMES])
+            ):
+                # in this case we aren't already searching for a match in this format, so we can submit a ladder request
+                await ws.send_str(f"|/search, {self.target_format}")
+                self.pending_battle_amt += 1
+
+        return None
 
     async def send_login(
         self,
@@ -216,17 +286,26 @@ class WebsocketConnector(Connector):
         ws: ClientWebSocketResponse,
         battle_id: str,
         message: str,
-    ) -> Tuple[ProgressState, BattleState]:
+    ) -> Tuple[ProgressState, Optional[BattleState]]:
         """
         Handles battle-specific messages. Mostly serves to pass messages to the corresponding processor for the battle.
+
+        If the battle has already been completed, we will skip all messages afterwards by returning None for the battle state
         """
+
+        if battle_id in self.completed_battles.keys():
+            return ProgressState.NO_ACTION, None
 
         bp = self.battle_processors.get(
             battle_id,
-            self.processor_class(
-                self.showdown_username,
-            ),
+            self.processor_class(session, self.showdown_username, self.showdown_username),
         )
+
+        progress_state = await bp.process_message(message_str=message)
+
+        self.battle_processors[battle_id] = bp
+
+        return progress_state, bp.battle.battle_states[-1]
 
     async def process_action(
         self,
@@ -241,24 +320,24 @@ class WebsocketConnector(Connector):
         """
 
         if progress_state == ProgressState.FULL_END:
-            # Process any final logging / closing operations needed if any
+            # Process any final logging / closing operations needed if any (e.g. resign from all ongoing battles)
             # TODO
 
             return ConnectionTermination(code=ConnectionTerminationCode.OBJECTIVE_COMPLETE)
         elif progress_state == ProgressState.GAME_END:
-            # Process game end logging here
-            # TODO
+            # Process game end movement
+            self.completed_battles[battle_id] = self.battle_processors.pop(battle_id).battle
             return None
         else:
             # Verify/Submit the action to pokemon showdown
             try:
                 return await self.submit_action(ws, progress_state, action, battle_id=battle_id)
             except AssertionError as ex:
-                return ConnectionTermination(code=ConnectionTerminationCode.INVALID_CHOICE, message=str(ex))
+                return ConnectionTermination(code=ConnectionTerminationCode.INVALID_CHOICE, message=f"{type(ex)}: {ex}")
             except NotImplementedError as ex:
-                return ConnectionTermination(code=ConnectionTerminationCode.INVALID_CHOICE, message=str(ex))
+                return ConnectionTermination(code=ConnectionTerminationCode.INVALID_CHOICE, message=f"{type(ex)}: {ex}")
             except Exception as ex:
-                return ConnectionTermination(code=ConnectionTerminationCode.OTHER_ERROR, message=str(ex))
+                return ConnectionTermination(code=ConnectionTerminationCode.OTHER_ERROR, message=f"{type(ex)}: {ex}")
 
     async def submit_action(
         self,
@@ -288,24 +367,30 @@ class WebsocketConnector(Connector):
         if is_bearable(action, ResignChoice):
             # Process resignation decision
             # TODO: Resign from just this game, don't return ConnectionTermination
-            assert battle_id is not None
+            assert (
+                battle_id is not None
+            ), "battle_id was None but you sent a resignation! When not in a battle, send QuitChoice instead!"
             return
 
         assert is_bearable(action, AnyChoice)
 
-        action_str = f">{battle_id}|/choose "
+        action_str = f"{battle_id}|/choose "
 
         if progress_state == ProgressState.TEAM_ORDER:
             # Check valid formatting for team order submission:
-            assert is_bearable(action, TeamOrderChoice)
-            assert battle_id is not None
+            assert is_bearable(action, TeamOrderChoice), "action was not a valid TeamOrderChoice!"
+            assert (
+                battle_id is not None
+            ), "battle_id was None! This likely means a bug in websocketconnector, not your code!"
 
             # TeamOrderChoice can either be a TeamChoice or a DefaultChoice, easy
             action_str += action.to_showdown()
         elif progress_state == ProgressState.SWITCH:
             # Check valid formatting for force-switch submission:
-            assert is_bearable(action, ForceSwitchChoice)
-            assert battle_id is not None
+            assert is_bearable(action, ForceSwitchChoice), "action was not a valid ForceSwitchChoice!"
+            assert (
+                battle_id is not None
+            ), "battle_id was None! This likely means a bug in websocketconnector, not your code!"
 
             # ForceSwitchChoice can either be a List of either Switch/Pass choices, or a single DefaultChoice
             if is_bearable(action, list):
@@ -313,14 +398,16 @@ class WebsocketConnector(Connector):
                     (self.gametype == "singles" and len(action) == 1)
                     or (self.gametype == "doubles" and len(action) == 2)
                     or (self.gametype == "triples" and len(action) == 3)
-                )
+                ), f"gametype is {self.gametype}, but you sent {len(action)} commands!"
                 action_str += ",".join([sub_action.to_showdown() for sub_action in action])
             else:
                 action_str += action.to_showdown()
         elif progress_state == ProgressState.MOVE:
             # Check valid formatting for move submission:
-            assert is_bearable(action, MoveDecisionChoice)
-            assert battle_id is not None
+            assert is_bearable(action, MoveDecisionChoice), "action was not a valid ForceSwitchChoice!"
+            assert (
+                battle_id is not None
+            ), "battle_id was None! This likely means a bug in websocketconnector, not your code!"
 
             # ForceSwitchChoice can either be a List of Move/Switch/Pass choices, or a single DefaultChoice
             if is_bearable(action, list):
@@ -328,7 +415,7 @@ class WebsocketConnector(Connector):
                     (self.gametype == "singles" and len(action) == 1)
                     or (self.gametype == "doubles" and len(action) == 2)
                     or (self.gametype == "triples" and len(action) == 3)
-                )
+                ), f"gametype is {self.gametype}, but you sent {len(action)} commands!"
                 action_str += ",".join([sub_action.to_showdown() for sub_action in action])
             else:
                 action_str += action.to_showdown()
