@@ -5,6 +5,7 @@ from aiohttp import ClientSession
 
 from ..battle.battle import Battle
 from ..battle.state import BattleState
+from ..battle.choices import AnyChoice
 
 
 @unique
@@ -42,8 +43,16 @@ class Processor(ABC):
     @abstractmethod
     async def process_message(self, message_str: str) -> ProgressState:
         """
-        This function shouild process the given message and return a ProgressState accordingly.
+        This function should process the given message and return a ProgressState accordingly.
 
         Remember, everything that you want to keep should be stored in self.battle / a state inside self.battle.battle_states!
         self.log should only be used for troubleshooting measures, or other logging purposes
+        """
+
+    @abstractmethod
+    async def process_action(self, action: AnyChoice, action_str: str) -> None:
+        """
+        This function should take an action given by the sage and process it.
+
+        This shouldn't *submit* the action to the game, but instead log the action as part of the state
         """

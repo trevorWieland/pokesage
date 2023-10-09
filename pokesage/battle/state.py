@@ -1,4 +1,4 @@
-from typing import List, Optional
+from beartype.typing import Dict, Optional
 
 from poketypes.dex import DexWeather
 from pydantic import BaseModel, Field
@@ -19,13 +19,20 @@ class BattleState(BaseModel):
         description="The turn number of this battle state. Note: We might have multiple states per turn due to force-switches!",
     )
 
-    player_team: List[BattlePokemon] = Field(
-        [],
-        description="A list containing Pokemon on the player's team. The order should match the order given in the request!",
+    player_team: Dict[str, BattlePokemon] = Field(
+        {},
+        description="A list containing Pokemon on the player's team. The keys must be unique to this pokemon",
     )
-    opponent_team: List[BattlePokemon] = Field(
-        [],
+    opponent_team: Dict[str, BattlePokemon] = Field(
+        {},
         description="A list containing Pokemon on the opponent's team.",
+    )
+
+    player_slots: Dict[int, Optional[str]] = Field(
+        {}, description="Maps the player'ss battle slots to either None or the string id of the pokemon in that slot"
+    )
+    opponent_slots: Dict[int, Optional[str]] = Field(
+        {}, description="Maps the opponent's battle slots to either None or the string id of the pokemon in that slot"
     )
 
     weather: Optional[DexWeather.ValueType] = Field(None, description="The current weather in the field")

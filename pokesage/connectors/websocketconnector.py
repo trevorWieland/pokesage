@@ -1,4 +1,5 @@
 import json
+import os
 from beartype.typing import AsyncGenerator, Dict, List, Literal, Optional, Tuple, Type, Union
 from urllib.parse import quote
 
@@ -40,6 +41,8 @@ class WebsocketConnector(Connector):
         total_battles: int = 1,
         processor_class: Type[ShowdownProcessor] = ShowdownProcessor,
         showdown_uri: str = "ws://localhost:8000/showdown/websocket",
+        save_logs: bool = False,
+        save_json: bool = False,
     ) -> None:
         """
         Save connection parameters so that the connection can be initialized later
@@ -61,6 +64,8 @@ class WebsocketConnector(Connector):
         self.total_battles = total_battles
         self.processor_class = processor_class
         self.showdown_uri = showdown_uri
+        self.save_logs = save_logs
+        self.save_json = save_json
 
         # Parameter initialization
         self.logged_in: bool = False
@@ -326,6 +331,16 @@ class WebsocketConnector(Connector):
             return ConnectionTermination(code=ConnectionTerminationCode.OBJECTIVE_COMPLETE)
         elif progress_state == ProgressState.GAME_END:
             # Process game end movement
+            if self.save_logs:
+                os.makedirs(f"logs/{self.target_format}/", exist_ok=True)
+                with open(f"logs/{self.target_format}/{battle_id}.log", "w", encoding="utf8") as f:
+                    f.writelines([f"{l}\n" for l in self.battle_processors[battle_id].log])
+
+            if self.save_json:
+                os.makedirs(f"logs/{self.target_format}/", exist_ok=True)
+                with open(f"logs/{self.target_format}/{battle_id}.json", "w", encoding="utf8") as f:
+                    json.dump(self.battle_processors[battle_id].battle.model_dump(mode="json"), f)
+
             self.completed_battles[battle_id] = self.battle_processors.pop(battle_id).battle
             return None
         else:
@@ -378,7 +393,7 @@ class WebsocketConnector(Connector):
 
         if progress_state == ProgressState.TEAM_ORDER:
             # Check valid formatting for team order submission:
-            assert is_bearable(action, TeamOrderChoice), "action was not a valid TeamOrderChoice!"
+            assert is_bearable(action, TeamOrderChoice), f"action was not a valid TeamOrderChoice!\n{action}"
             assert (
                 battle_id is not None
             ), "battle_id was None! This likely means a bug in websocketconnector, not your code!"
@@ -387,7 +402,7 @@ class WebsocketConnector(Connector):
             action_str += action.to_showdown()
         elif progress_state == ProgressState.SWITCH:
             # Check valid formatting for force-switch submission:
-            assert is_bearable(action, ForceSwitchChoice), "action was not a valid ForceSwitchChoice!"
+            assert is_bearable(action, ForceSwitchChoice), f"action was not a valid ForceSwitchChoice!\n{action}"
             assert (
                 battle_id is not None
             ), "battle_id was None! This likely means a bug in websocketconnector, not your code!"
@@ -404,7 +419,7 @@ class WebsocketConnector(Connector):
                 action_str += action.to_showdown()
         elif progress_state == ProgressState.MOVE:
             # Check valid formatting for move submission:
-            assert is_bearable(action, MoveDecisionChoice), "action was not a valid ForceSwitchChoice!"
+            assert is_bearable(action, MoveDecisionChoice), f"action was not a valid MoveDecisionChoice!\n{action}"
             assert (
                 battle_id is not None
             ), "battle_id was None! This likely means a bug in websocketconnector, not your code!"
@@ -423,4 +438,5 @@ class WebsocketConnector(Connector):
             assert action is None
             return
 
+        await self.battle_processors[battle_id].process_action(action, action_str)
         await ws.send_str(action_str)

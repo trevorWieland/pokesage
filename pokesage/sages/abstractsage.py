@@ -74,8 +74,8 @@ class AbstractSage(ABC):
             elif progress_state == ProgressState.MOVE:
                 battle_state: BattleState = data
                 action = await self.move_choice(session=session, battle_state=battle_state)
-                battle_state: BattleState = data
             elif progress_state == ProgressState.SWITCH:
+                battle_state: BattleState = data
                 action = await self.forceswitch_choice(session=session, battle_state=battle_state)
             elif progress_state == ProgressState.GAME_END:
                 # Not particularly helpful in this use case, but if built as a gymnasium env, this would provide `terminated`

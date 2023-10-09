@@ -21,9 +21,9 @@ class TeamChoice(BaseModel):
         """
 
         if len(self.team_order) >= 10:
-            return ",".join(self.team_order)
+            return "team " + ",".join([str(s) for s in self.team_order])
         else:
-            return "".join(self.team_order)
+            return "team " + "".join([str(s) for s in self.team_order])
 
 
 class MoveChoice(BaseModel):
@@ -42,6 +42,26 @@ class MoveChoice(BaseModel):
     dyna: bool = Field(False, description="Whether this choice involves dynamaxing first")
     zmove: bool = Field(False, description="Whether this choice is using the zmove form of the move")
 
+    def to_showdown(self) -> str:
+        """
+        Converts the choice to a showdown-formatted decision
+        """
+
+        choice = f"move {self.move_number}"
+
+        if self.target_number is not None:
+            choice += f" {self.target_number}"
+        if self.tera:
+            choice += " terastallize"
+        if self.mega:
+            choice += " mega"
+        if self.dyna:
+            choice += " dynamax"
+        if self.zmove:
+            choice += " zmove"
+
+        return choice.strip()
+
 
 class SwitchChoice(BaseModel):
     """
@@ -51,6 +71,15 @@ class SwitchChoice(BaseModel):
     """
 
     slot: int = Field(..., description="The slot to switch to")
+
+    def to_showdown(self) -> str:
+        """
+        Converts the choice to a showdown-formatted decision
+        """
+
+        choice = f"switch {self.slot}"
+
+        return choice.strip()
 
 
 class ItemChoice(BaseModel):

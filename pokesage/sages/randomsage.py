@@ -38,8 +38,6 @@ class RandomSage(AbstractSage):
 
         team_order = battle_state.battle_choice.team_order
 
-        print(team_order)
-
         random.shuffle(team_order)
 
         return TeamChoice(team_order=team_order)
@@ -77,7 +75,13 @@ class RandomSage(AbstractSage):
             if is_bearable(slot_choices, PassChoice):
                 selected_choices.append(slot_choices)
             else:
-                valid_choices = [c for c in slot_choices if (not is_bearable(c, SwitchChoice) or c not in slot_choices)]
+                valid_choices = [c for c in slot_choices if (c not in selected_choices)]
+
+                if len(valid_choices) == 0:
+                    print(slot_choices)
+                    print(selected_choices)
+                    print(valid_choices)
+
                 selected_choices.append(valid_choices[random.randint(0, len(valid_choices) - 1)])
 
         return selected_choices

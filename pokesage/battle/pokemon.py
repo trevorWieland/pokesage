@@ -74,11 +74,13 @@ class BattleItem(BaseModel):
 class BattlePokemon(BaseModel):
     """ """
 
+    player_id: str = Field(..., description="A unique identifier for the player that controls this pokemon")
+
     species: DexPokemon.ValueType = Field(..., description="The species of the pokemon")
     base_species: DexPokemon.ValueType = Field(..., description="The base species of the pokemon")
-    identifier: Optional[str] = Field(
+    nickname: Optional[str] = Field(
         None,
-        description="A unique identifier for this pokemon. If we don't know the identifier yet, put None",
+        description="The nickname of this pokemon. If we don't know the nickname yet, put None",
     )
 
     level: int = Field(100, description="The level of the pokemon")
@@ -97,13 +99,8 @@ class BattlePokemon(BaseModel):
         description="The current health of the pokemon. If hp_type set to fractional, will be percentage",
     )
 
-    slot: Optional[str] = Field(
-        None,
-        description="Which slot (if any) the pokemon is currently in",
-        max_length=1,
-        min_length=1,
-        pattern=r"[abc]",
-    )
+    team_pos: Optional[int] = Field(None, description="Which team-position the pokemon is currently in")
+    slot: Optional[int] = Field(None, description="Which slot (if any) the pokemon is currently in", ge=1, le=3)
 
     active: bool = Field(False, description="Whether the current pokemon is active or not")
 
@@ -140,3 +137,25 @@ class BattlePokemon(BaseModel):
     is_tera: bool = Field(False, description="Whether the pokemon is currently teratyped")
     is_mega: bool = Field(False, description="Whether the pokemon is currently mega-evolved")
     is_dynamax: bool = Field(False, description="Whether the pokemon is currently dynamaxed")
+
+    is_reviving: bool = Field(False, description="Revival Blessing mechanic support")
+
+    def to_id(self) -> str:
+        """
+        Provides a (hopefully) unique id for this pokemon based on currently known information
+
+        When a player has multiple mostly-identical pokemon (basespecies, forme, level, gender, nickname) this breaks
+        """
+        id_str = f"{self.player_id}_{self.species}_{self.level}_{self.gender}_{self.nickname}"
+
+        return id_str
+
+    def to_base_id(self) -> str:
+        """
+        Provides a simplified id based on information known from `poke` messages in showdown
+
+        When a player has multiple partially-identical pokemon (basespecies, level, gender) this breaks
+        """
+        id_str = f"{self.player_id}_{self.base_species}_{self.level}_{self.gender}_None"
+
+        return id_str
