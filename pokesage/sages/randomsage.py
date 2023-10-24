@@ -1,7 +1,12 @@
+"""Player Logic for making random choices in a battle.
+
+Contains both RandomSage and Bronius, which are the same class but with different names.
+This class will make random choices, including moves, switches, and team orders.
+"""
+
 from aiohttp import ClientSession
 
 from ..battle.choices import (
-    DefaultChoice,
     ForceSwitchChoice,
     MoveDecisionChoice,
     TeamOrderChoice,
@@ -17,19 +22,23 @@ import random
 
 
 class RandomSage(AbstractSage):
-    """
-    Picks the first legal option every time.
+    """Picks a random move between moves, switches, and team order.
 
-    Best used for testing connections, as this is even less sophisticated than random choices.
+    Best used for testing connections and choice parsing.
     """
 
     async def team_choice(self, session: ClientSession, battle_state: BattleState) -> TeamOrderChoice:
-        """
-        Simply returns default choice, which will signify picking the first legal option.
+        """Generate a TeamOrderChoice decision, which will be used for selecting pokemon order.
 
-        This is the equivalent to picking /choose default on showdown or running out of time in VGC
-        """
+        This class specifically will randomly sort the given team order.
 
+        Args:
+            session (ClientSession): An aiohttp session to use for making requests as needed.
+            battle_state (BattleState): The current battle state to make a decision from.
+
+        Returns:
+            TeamOrderChoice: A randomly sorted list for team order
+        """
         # TODO: Implement random sub-team ordering (ex: of the 6 options, pick 4)
 
         assert is_bearable(
@@ -43,12 +52,18 @@ class RandomSage(AbstractSage):
         return TeamChoice(team_order=team_order)
 
     async def move_choice(self, session: ClientSession, battle_state: BattleState) -> MoveDecisionChoice:
-        """
-        Simply returns default choice, which will signify picking the first legal option.
+        """Generate a MoveDecisionChoice decision, which will be used for typical move selection.
 
-        This is the equivalent to picking /choose default on showdown or running out of time in VGC
-        """
+        This class specifically will randomly pick one option for each slot, in order from left to right.
+        This means that if we randomly choose to swap slot 1 to Pokemon B, then slot 2 will not have this as an option.
 
+        Args:
+            session (ClientSession): An aiohttp session to use for making requests as needed.
+            battle_state (BattleState): The current battle state to make a decision from.
+
+        Returns:
+            MoveDecisionChoice: A randomly selected move for each slot
+        """
         assert is_bearable(battle_state.battle_choice, list), "The given choices should be a list!"
 
         selected_choices = []
@@ -62,12 +77,18 @@ class RandomSage(AbstractSage):
         return selected_choices
 
     async def forceswitch_choice(self, session: ClientSession, battle_state: BattleState) -> ForceSwitchChoice:
-        """
-        Simply returns default choice, which will signify picking the first legal option.
+        """Generate a ForceSwitchChoice decision, which will be used when needing to switch pokemon.
 
-        This is the equivalent to picking /choose default on showdown or running out of time in VGC
-        """
+        This class specifically will randomly pick one option for each slot, in order from left to right.
+        This means that if we randomly choose to swap slot 1 to Pokemon B, then slot 2 will not have this as an option.
 
+        Args:
+            session (ClientSession): An aiohttp session to use for making requests as needed.
+            battle_state (BattleState): The current battle state to make a decision from.
+
+        Returns:
+            ForceSwitchChoice: A randomly selected switch for each slot, as needed.
+        """
         assert is_bearable(battle_state.battle_choice, list), "The given choices should be a list!"
 
         selected_choices = []
@@ -88,8 +109,7 @@ class RandomSage(AbstractSage):
 
 
 class Bronius(RandomSage):
-    """
-    Sage-named version of the RandomSage class.
+    """Sage-named version of the RandomSage class.
 
-    Cool kids use this instead of RandomSage
+    Cool kids use this instead of RandomSage.
     """

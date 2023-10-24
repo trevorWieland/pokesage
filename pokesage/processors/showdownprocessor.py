@@ -1,16 +1,23 @@
+"""Contains the Processor class for showdown-style messages, ShowdownProcessor.
+
+This class on its own only provides the framework to process the battle. You should then extend this class
+to actually implement battle state processing. As is, it will provide the minimal request-handling to provide
+valid actions. Almost no other details will be available in the battle state if you use this!
+"""
+
+
 from beartype.typing import Optional
 from copy import deepcopy
-from poketypes.dex import clean_forme
-from poketypes.showdown.battlemessage import *
+from poketypes.dex import clean_forme, DexStatus
+from poketypes.showdown import battlemessage, BattleMessage, BMType
 
-from ..battle import Battle, BattleAbility, BattleItem, BattleMove, BattlePokemon, BattleState, BoostBlock, StatBlock
+from ..battle import BattleAbility, BattleItem, BattleMove, BattlePokemon, BattleState, StatBlock
 from ..battle.choices import MoveChoice, PassChoice, SwitchChoice, TeamChoice, AnyChoice
 from .abstractprocessor import Processor, ProgressState
 
 
 class ShowdownProcessor(Processor):
-    """
-    Processor class for showdown-style messages. Built to work for showdown-style battle messages exclusively
+    """Processor class for showdown-style messages. Built to work for showdown-style battle messages exclusively.
 
     This class on its own only provides the framework to process the battle. You should then extend this class
     to actually implement battle state processing. As is, it will provide the minimal request-handling to provide
@@ -18,24 +25,33 @@ class ShowdownProcessor(Processor):
     """
 
     async def process_action(self, action: AnyChoice, action_str: str) -> None:
-        """
-        Takes the action given by the sage and adds it to the log
+        """Take the action given by the sage and adds it to the log.
 
         Also duplicates the battle_state so we save a copy of the state previous to the decision
-        """
 
+        Args:
+            action (AnyChoice): The action taken by the player.
+            action_str (str): The action string as sent to showdown. For adding to the log.
+        """
         self.log.append(action_str)
         self.battle.battle_actions.append(action)
         self.battle.battle_states.append(deepcopy(self.battle.battle_states[-1]))
 
     async def process_message(self, message_str: str) -> ProgressState:
-        """
-        This function shouild process the given message and return a ProgressState accordingly.
+        """Process the given message and return a ProgressState.
 
-        Remember, everything that you want to keep should be stored in self.battle / a state inside self.battle.battle_states!
-        self.log should only be used for troubleshooting measures, or other logging purposes
-        """
+        Remember, everything that you want to keep should either be stored in self.battle / a state inside of
+        self.battle.battle_states! self.log should only be used for troubleshooting measures, or other logging.
 
+        Args:
+            message_str (str): The trimmed string as sent by showdown.
+
+        Raises:
+            e: Any Arbitrary Exception that occurs during processing, as this function should not face exceptions.
+
+        Returns:
+            ProgressState: The progress state that the connector should pass to the player (if needed).
+        """
         bm = BattleMessage.from_message(message_str)
 
         try:
@@ -56,39 +72,49 @@ class ShowdownProcessor(Processor):
         return progress_state
 
     async def preprocess_bm(self, bm: BattleMessage) -> Optional[ProgressState]:
-        """
-        A function to hook into the battle message processing flow.
-        This will run *before* the battle message is processed by its specific method
+        """Hooks into the battle message processing flow, *before* the battle message is processed.
 
         If the function returns a ProgressState, we will *SKIP* the remaining processing
-        """
 
+        Args:
+            bm (BattleMessage): The battlemessage, after being parsed as a BattleMessage, but before BattleState.
+
+        Returns:
+            Optional[ProgressState]: A ProgressState to override the default processing flow.
+        """
         self.log.append(bm.BATTLE_MESSAGE)
 
     async def postprocess_bm(self, bm: BattleMessage) -> Optional[ProgressState]:
-        """
-        A function to hook into the battle message processing flow.
-        This will run *after* the battle message is processed by its specific method
+        """Hooks into the battle message processing flow, *after* the battle state is processed.
 
-        If the function returns a ProgressState, it will overwrite the original ProgressState
+        If the function returns a ProgressState, we will override the previous progress state with this one.
+
+        Args:
+            bm (BattleMessage): The battlemessage, after being parsed as a BattleMessage and processed.
+
+        Returns:
+            Optional[ProgressState]: A ProgressState to override the default processing flow.
         """
 
     async def process_bm(self, bm: BattleMessage) -> ProgressState:
-        """
-        The main processing flow for Battle Messages.
-
-        Flow:
-        - preprocess_bm -> If not None, break and return result
-        - processbm_{BMTYPE} runs for the specific battle message type
-        - postprocess_bm -> If not None, result overrides previous progress state result
+        """Process the BattleMessage, adding details to the BattleState, and return a ProgressState.
 
         In subclasses, you shouldn't need to override this function, instead you would override individual
         process_bm_{BMTYPE} functions for specific feature extraction, or the pre/post process functions
-
         The returned ProgressState will be acted on, so make sure that if the server is expecting an action,
         you return the correct corresponding ProgressState for the expected action.
-        """
 
+        Tip: Flow of processing:
+            * preprocess_bm -> If not None, break and return result
+            * processbm_{BMTYPE} runs for the specific battle message type
+            * postprocess_bm -> If not None, result overrides previous progress state result
+
+        Args:
+            bm (BattleMessage): The battlemessage, after being parsed as a BattleMessage.
+
+        Returns:
+            ProgressState: The progress state that the connector should pass to the player (if needed).
+        """
         progress_state = await self.preprocess_bm(bm)
 
         if progress_state is not None:
@@ -133,7 +159,7 @@ class ShowdownProcessor(Processor):
         elif bm.BMTYPE == BMType.request:
             await self.processbm_request(bm)
 
-            bm: BattleMessage_request = bm
+            bm: battlemessage.BattleMessage_request = bm
 
             if bm.REQUEST_TYPE == "TEAMPREVIEW":
                 progress_state = ProgressState.NO_ACTION
@@ -402,11 +428,12 @@ class ShowdownProcessor(Processor):
 
         return progress_state
 
-    async def processbm_player(self, bm: BattleMessage_player) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_player(self, bm: battlemessage.BattleMessage_player) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_player): The battlemessage, after being parsed as a BattleMessage.
+        """
         if self.battle.player_name == bm.USERNAME:
             self.battle.player_id = bm.PLAYER
             self.battle.player_rating = bm.RATING
@@ -415,21 +442,23 @@ class ShowdownProcessor(Processor):
             self.battle.opponent_id = bm.PLAYER
             self.battle.opponent_rating = bm.RATING
 
-    async def processbm_teamsize(self, bm: BattleMessage_teamsize) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_teamsize(self, bm: battlemessage.BattleMessage_teamsize) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_teamsize): The battlemessage, after being parsed as a BattleMessage.
+        """
         if self.battle.player_id == bm.PLAYER:
             self.battle.player_team_size = bm.NUMBER
         else:
             self.battle.opponent_team_size = bm.NUMBER
 
-    async def processbm_gametype(self, bm: BattleMessage_gametype) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_gametype(self, bm: battlemessage.BattleMessage_gametype) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_gametype): The battlemessage, after being parsed as a BattleMessage.
+        """
         self.battle.gametype = bm.GAMETYPE
 
         if bm.GAMETYPE == "singles":
@@ -442,42 +471,50 @@ class ShowdownProcessor(Processor):
             self.battle.battle_states[-1].player_slots = {1: None, 2: None, 3: None}
             self.battle.battle_states[-1].opponent_slots = {1: None, 2: None, 3: None}
 
-    async def processbm_gen(self, bm: BattleMessage_gen) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_gen(self, bm: battlemessage.BattleMessage_gen) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_gen): The battlemessage, after being parsed as a BattleMessage.
+        """
         self.battle.gen = bm.GENNUM
 
-    async def processbm_tier(self, bm: BattleMessage_tier) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_tier(self, bm: battlemessage.BattleMessage_tier) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_tier): The battlemessage, after being parsed as a BattleMessage.
+        """
         self.battle.format = bm.FORMATNAME.lower().replace("[", "").replace("]", "").replace(" ", "")
 
-    async def processbm_rated(self, bm: BattleMessage_rated) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_rated(self, bm: battlemessage.BattleMessage_rated) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_rated): The battlemessage, after being parsed as a BattleMessage.
+        """
         self.battle.rated = True
 
-    async def processbm_rule(self, bm: BattleMessage_rule) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_rule(self, bm: battlemessage.BattleMessage_rule) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_rule): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_clearpoke(self, bm: BattleMessage_clearpoke) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_clearpoke(self, bm: battlemessage.BattleMessage_clearpoke) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_clearpoke): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_poke(self, bm: BattleMessage_poke) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_poke(self, bm: battlemessage.BattleMessage_poke) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_poke): The battlemessage, after being parsed as a BattleMessage.
+        """
         if bm.PLAYER == self.battle.player_id:
             # We already get better information from the request object, so we don't care about this for us
             return
@@ -500,26 +537,33 @@ class ShowdownProcessor(Processor):
 
         self.battle.battle_states[-1].opponent_team[temp_id] = poke
 
-    async def processbm_start(self, bm: BattleMessage_start) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_start(self, bm: battlemessage.BattleMessage_start) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_start): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_teampreview(self, bm: BattleMessage_teampreview) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_teampreview(self, bm: battlemessage.BattleMessage_teampreview) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_teampreview): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_empty(self, bm: BattleMessage_empty) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_empty(self, bm: battlemessage.BattleMessage_empty) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_empty): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_request(self, bm: BattleMessage_request) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_request(self, bm: battlemessage.BattleMessage_request) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_request): The battlemessage, after being parsed as a BattleMessage.
+        """
         assert self.battle.player_name == bm.USERNAME
 
         assert (self.battle.player_id == bm.PLAYER) or (self.battle.player_id is None)
@@ -635,11 +679,11 @@ class ShowdownProcessor(Processor):
             for p in current_state.player_team.values()
             if (p.status != DexStatus.STATUS_FNT and not p.active)
         ]
-        revive_options = [
-            SwitchChoice(slot=p.team_pos)
-            for p in current_state.player_team.values()
-            if (p.status == DexStatus.STATUS_FNT and not p.active)
-        ]
+        # revive_options = [
+        #    SwitchChoice(slot=p.team_pos)
+        #    for p in current_state.player_team.values()
+        #    if (p.status == DexStatus.STATUS_FNT and not p.active)
+        # ]
 
         if bm.REQUEST_TYPE == "FORCESWITCH":
             # If the request type is a forceswitch, then we have already identified every option the player has
@@ -705,71 +749,90 @@ class ShowdownProcessor(Processor):
         current_state.battle_choice = choices
         self.battle.battle_states[-1] = current_state
 
-    async def processbm_inactive(self, bm: BattleMessage_inactive) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_inactive(self, bm: battlemessage.BattleMessage_inactive) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_inactive): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_inactiveoff(self, bm: BattleMessage_inactiveoff) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_inactiveoff(self, bm: battlemessage.BattleMessage_inactiveoff) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_inactiveoff): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_upkeep(self, bm: BattleMessage_upkeep) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_upkeep(self, bm: battlemessage.BattleMessage_upkeep) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_upkeep): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_turn(self, bm: BattleMessage_turn) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_turn(self, bm: battlemessage.BattleMessage_turn) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_turn): The battlemessage, after being parsed as a BattleMessage.
+        """
         self.battle.turn = bm.NUMBER
 
         # We need to process valid targets here, as this will happen `after` any switches are made
         # TODO: process move target options
 
-    async def processbm_win(self, bm: BattleMessage_win) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_win(self, bm: battlemessage.BattleMessage_win) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_win): The battlemessage, after being parsed as a BattleMessage.
+        """
         self.battle.player_victory = bm.USERNAME == self.battle.player_name
 
-    async def processbm_tie(self, bm: BattleMessage_tie) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_tie(self, bm: battlemessage.BattleMessage_tie) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_tie): The battlemessage, after being parsed as a BattleMessage.
+        """
         self.battle.player_victory = False
 
-    async def processbm_expire(self, bm: BattleMessage_expire) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_expire(self, bm: battlemessage.BattleMessage_expire) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_expire): The battlemessage, after being parsed as a BattleMessage.
+        """
         self.battle.player_victory = False
 
-    async def processbm_t(self, bm: BattleMessage_t) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_t(self, bm: battlemessage.BattleMessage_t) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_t): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_move(self, bm: BattleMessage_move) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_move(self, bm: battlemessage.BattleMessage_move) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_move): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_switch(self, bm: BattleMessage_switch) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_switch(self, bm: battlemessage.BattleMessage_switch) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Note:
+            Unlike the other methods that involve switching, we see this message at the start before we have slots
+            set up, so if we don't already have slot information, we need to use details from this to initialize it.
+
+        Args:
+            bm (battlemessage.BattleMessage_switch): The battlemessage, after being parsed as a BattleMessage.
+        """
         # TODO: Figure out a way of supporting duplicate base species w/ different nicknames
-        ## Maybe a numbering system based on appearance?
-        ## Current setup breaks when a pokemon changes forme back to a basespecies
-        ## Current setup also relies on perfect accounting of slot information
+        # Maybe a numbering system based on appearance?
+        # Current setup breaks when a pokemon changes forme back to a basespecies
+        # Current setup also relies on perfect accounting of slot information
 
         full_ident = f"{bm.POKEMON.PLAYER}_{bm.SPECIES}_{bm.LEVEL}_{bm.GENDER}_{bm.POKEMON.IDENTITY}"
         base_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.LEVEL}_{bm.GENDER}_None"
@@ -849,11 +912,16 @@ class ShowdownProcessor(Processor):
 
         self.battle.battle_states[-1] = current_state
 
-    async def processbm_drag(self, bm: BattleMessage_drag) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_drag(self, bm: battlemessage.BattleMessage_drag) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Note:
+            Since this is a dragging of slots, we need to already know which pokemon are in which slots, *before* this
+            message is processed. Otherwise we wouldn't know which Pokemon has been replaced.
+
+        Args:
+            bm (battlemessage.BattleMessage_drag): The battlemessage, after being parsed as a BattleMessage.
+        """
         full_ident = f"{bm.POKEMON.PLAYER}_{bm.SPECIES}_{bm.LEVEL}_{bm.GENDER}_{bm.POKEMON.IDENTITY}"
         base_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.LEVEL}_{bm.GENDER}_None"
 
@@ -932,11 +1000,16 @@ class ShowdownProcessor(Processor):
 
         self.battle.battle_states[-1] = current_state
 
-    async def processbm_detailschange(self, bm: BattleMessage_detailschange) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_detailschange(self, bm: battlemessage.BattleMessage_detailschange) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Note:
+            Since this is a change of details, we need to already know which pokemon are in which slots, *before* this
+            message is processed.
+
+        Args:
+            bm (battlemessage.BattleMessage_detailschange): The battlemessage, after being parsed as a BattleMessage.
+        """
         full_ident = f"{bm.POKEMON.PLAYER}_{bm.SPECIES}_{bm.LEVEL}_{bm.GENDER}_{bm.POKEMON.IDENTITY}"
 
         slot = bm.POKEMON.SLOT
@@ -973,16 +1046,23 @@ class ShowdownProcessor(Processor):
 
         self.battle.battle_states[-1] = current_state
 
-    async def processbm_replace(self, bm: BattleMessage_replace) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_replace(self, bm: battlemessage.BattleMessage_replace) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_replace): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_swap(self, bm: BattleMessage_swap) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_swap(self, bm: battlemessage.BattleMessage_swap) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Note:
+            Since this is a swapping of slots, we need to already know which pokemon are in which slots, *before* this
+            message is processed.
+
+        Args:
+            bm (battlemessage.BattleMessage_swap): The battlemessage, after being parsed as a BattleMessage.
+        """
         player = bm.POKEMON.PLAYER
 
         original_slot = bm.POKEMON.SLOT
@@ -1022,350 +1102,500 @@ class ShowdownProcessor(Processor):
 
         self.battle.battle_states[-1] = current_state
 
-    async def processbm_cant(self, bm: BattleMessage_cant) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_cant(self, bm: battlemessage.BattleMessage_cant) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_cant): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_faint(self, bm: BattleMessage_faint) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_faint(self, bm: battlemessage.BattleMessage_faint) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_faint): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_fail(self, bm: BattleMessage_fail) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_fail(self, bm: battlemessage.BattleMessage_fail) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_fail): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_block(self, bm: BattleMessage_block) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_block(self, bm: battlemessage.BattleMessage_block) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_block): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_notarget(self, bm: BattleMessage_notarget) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_notarget(self, bm: battlemessage.BattleMessage_notarget) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_notarget): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_miss(self, bm: BattleMessage_miss) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_miss(self, bm: battlemessage.BattleMessage_miss) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_miss): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_damage(self, bm: BattleMessage_damage) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_damage(self, bm: battlemessage.BattleMessage_damage) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_damage): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_heal(self, bm: BattleMessage_heal) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_heal(self, bm: battlemessage.BattleMessage_heal) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_heal): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_sethp(self, bm: BattleMessage_sethp) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_sethp(self, bm: battlemessage.BattleMessage_sethp) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_sethp): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_status(self, bm: BattleMessage_status) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_status(self, bm: battlemessage.BattleMessage_status) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_status): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_curestatus(self, bm: BattleMessage_curestatus) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_curestatus(self, bm: battlemessage.BattleMessage_curestatus) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_curestatus): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_cureteam(self, bm: BattleMessage_cureteam) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_cureteam(self, bm: battlemessage.BattleMessage_cureteam) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_cureteam): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_boost(self, bm: BattleMessage_boost) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_boost(self, bm: battlemessage.BattleMessage_boost) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_boost): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_unboost(self, bm: BattleMessage_unboost) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_unboost(self, bm: battlemessage.BattleMessage_unboost) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_unboost): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_setboost(self, bm: BattleMessage_setboost) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_setboost(self, bm: battlemessage.BattleMessage_setboost) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_setboost): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_swapboost(self, bm: BattleMessage_swapboost) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_swapboost(self, bm: battlemessage.BattleMessage_swapboost) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_swapboost): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_invertboost(self, bm: BattleMessage_invertboost) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_invertboost(self, bm: battlemessage.BattleMessage_invertboost) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_invertboost): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_clearboost(self, bm: BattleMessage_clearboost) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_clearboost(self, bm: battlemessage.BattleMessage_clearboost) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_clearboost): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_clearallboost(self, bm: BattleMessage_clearallboost) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_clearallboost(self, bm: battlemessage.BattleMessage_clearallboost) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_clearallboost): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_clearpositiveboost(self, bm: BattleMessage_clearpositiveboost) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_clearpositiveboost(self, bm: battlemessage.BattleMessage_clearpositiveboost) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_clearpositiveboost): The battlemessage, after being parsed as a
+                BattleMessage.
         """
 
-    async def processbm_clearnegativeboost(self, bm: BattleMessage_clearnegativeboost) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_clearnegativeboost(self, bm: battlemessage.BattleMessage_clearnegativeboost) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_clearnegativeboost): The battlemessage, after being parsed as a
+                BattleMessage.
         """
 
-    async def processbm_copyboost(self, bm: BattleMessage_copyboost) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_copyboost(self, bm: battlemessage.BattleMessage_copyboost) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_copyboost): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_weather(self, bm: BattleMessage_weather) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_weather(self, bm: battlemessage.BattleMessage_weather) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_weather): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_fieldstart(self, bm: BattleMessage_fieldstart) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_fieldstart(self, bm: battlemessage.BattleMessage_fieldstart) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_fieldstart): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_terastallize(self, bm: BattleMessage_terastallize) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_terastallize(self, bm: battlemessage.BattleMessage_terastallize) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_terastallize): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_fieldend(self, bm: BattleMessage_fieldend) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_fieldend(self, bm: battlemessage.BattleMessage_fieldend) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_fieldend): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_fieldactivate(self, bm: BattleMessage_fieldactivate) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_fieldactivate(self, bm: battlemessage.BattleMessage_fieldactivate) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_fieldactivate): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_sidestart(self, bm: BattleMessage_sidestart) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_sidestart(self, bm: battlemessage.BattleMessage_sidestart) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_sidestart): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_sideend(self, bm: BattleMessage_sideend) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_sideend(self, bm: battlemessage.BattleMessage_sideend) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_sideend): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_swapsideconditions(self, bm: BattleMessage_swapsideconditions) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_swapsideconditions(self, bm: battlemessage.BattleMessage_swapsideconditions) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_swapsideconditions): The battlemessage, after being parsed as a
+                BattleMessage.
         """
 
-    async def processbm_volstart(self, bm: BattleMessage_volstart) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_volstart(self, bm: battlemessage.BattleMessage_volstart) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_volstart): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_volend(self, bm: BattleMessage_volend) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_volend(self, bm: battlemessage.BattleMessage_volend) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_volend): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_crit(self, bm: BattleMessage_crit) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_crit(self, bm: battlemessage.BattleMessage_crit) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_crit): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_supereffective(self, bm: BattleMessage_supereffective) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_supereffective(self, bm: battlemessage.BattleMessage_supereffective) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_supereffective): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_resisted(self, bm: BattleMessage_resisted) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_resisted(self, bm: battlemessage.BattleMessage_resisted) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_resisted): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_immune(self, bm: BattleMessage_immune) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_immune(self, bm: battlemessage.BattleMessage_immune) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_immune): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_item(self, bm: BattleMessage_item) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_item(self, bm: battlemessage.BattleMessage_item) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_item): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_enditem(self, bm: BattleMessage_enditem) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_enditem(self, bm: battlemessage.BattleMessage_enditem) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_enditem): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_ability(self, bm: BattleMessage_ability) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_ability(self, bm: battlemessage.BattleMessage_ability) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_ability): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_endability(self, bm: BattleMessage_endability) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_endability(self, bm: battlemessage.BattleMessage_endability) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_endability): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_transform(self, bm: BattleMessage_transform) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_transform(self, bm: battlemessage.BattleMessage_transform) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_transform): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_mega(self, bm: BattleMessage_mega) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_mega(self, bm: battlemessage.BattleMessage_mega) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_mega): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_primal(self, bm: BattleMessage_primal) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_primal(self, bm: battlemessage.BattleMessage_primal) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_primal): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_burst(self, bm: BattleMessage_burst) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_burst(self, bm: battlemessage.BattleMessage_burst) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_burst): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_zpower(self, bm: BattleMessage_zpower) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_zpower(self, bm: battlemessage.BattleMessage_zpower) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_zpower): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_zbroken(self, bm: BattleMessage_zbroken) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_zbroken(self, bm: battlemessage.BattleMessage_zbroken) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_zbroken): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_activate(self, bm: BattleMessage_activate) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_activate(self, bm: battlemessage.BattleMessage_activate) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_activate): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_hint(self, bm: BattleMessage_hint) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_hint(self, bm: battlemessage.BattleMessage_hint) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_hint): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_center(self, bm: BattleMessage_center) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_center(self, bm: battlemessage.BattleMessage_center) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_center): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_message(self, bm: BattleMessage_message) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_message(self, bm: battlemessage.BattleMessage_message) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_message): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_combine(self, bm: BattleMessage_combine) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_combine(self, bm: battlemessage.BattleMessage_combine) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_combine): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_waiting(self, bm: BattleMessage_waiting) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_waiting(self, bm: battlemessage.BattleMessage_waiting) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_waiting): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_prepare(self, bm: BattleMessage_prepare) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_prepare(self, bm: battlemessage.BattleMessage_prepare) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_prepare): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_mustrecharge(self, bm: BattleMessage_mustrecharge) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_mustrecharge(self, bm: battlemessage.BattleMessage_mustrecharge) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_mustrecharge): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_nothing(self, bm: BattleMessage_nothing) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_nothing(self, bm: battlemessage.BattleMessage_nothing) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_nothing): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_hitcount(self, bm: BattleMessage_hitcount) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_hitcount(self, bm: battlemessage.BattleMessage_hitcount) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_hitcount): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_singlemove(self, bm: BattleMessage_singlemove) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_singlemove(self, bm: battlemessage.BattleMessage_singlemove) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_singlemove): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_singleturn(self, bm: BattleMessage_singleturn) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_singleturn(self, bm: battlemessage.BattleMessage_singleturn) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_singleturn): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_formechange(self, bm: BattleMessage_formechange) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_formechange(self, bm: battlemessage.BattleMessage_formechange) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_formechange): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_error(self, bm: BattleMessage_error) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_error(self, bm: battlemessage.BattleMessage_error) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_error): The battlemessage, after being parsed as a BattleMessage.
+
+        Raises:
+            RuntimeError: If the BattleMessage_error is recieved, we have reached an error state.
+        """
         raise RuntimeError(f"Reached error state: {bm.MESSAGE}")
 
-    async def processbm_bigerror(self, bm: BattleMessage_bigerror) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+    async def processbm_bigerror(self, bm: battlemessage.BattleMessage_bigerror) -> None:
+        """Process the BattleMessage, updating the BattleState.
 
+        Args:
+            bm (battlemessage.BattleMessage_bigerror): The battlemessage, after being parsed as a BattleMessage.
+
+        Raises:
+            RuntimeError: If the BattleMessage_bigerror is recieved, we have reached an error state.
+        """
         raise RuntimeError(f"Reached big error state: {bm.MESSAGE}")
 
     async def processbm_unknown(self, bm: BattleMessage) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+        """Process the BattleMessage, updating the BattleState.
 
-    async def processbm_init(self, bm: BattleMessage_init) -> None:
-        """
-        Processes this message to update the current battle state
-        """
+        Args:
+            bm (BattleMessage): The battlemessage, after being parsed as a BattleMessage.
 
+        Raises:
+            RuntimeError: If this is recieved, `poketypes` was unable to identify the message. If the issues isn't due
+                to some sort of string cleaning issue, this is a bug with `poketypes`.
+        """
+        raise RuntimeError(f"Received battle message that poketypes couldn't identify: {bm.BATTLE_MESSAGE}")
+
+    async def processbm_init(self, bm: battlemessage.BattleMessage_init) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Note:
+            This is the first message recieved, so we need to initialize our first state.
+
+        Args:
+            bm (battlemessage.BattleMessage_init): The battlemessage, after being parsed as a BattleMessage.
+        """
         # This signifies that the game has started, so we need to initialize our first state
         bs = BattleState(turn=1)
         self.battle.battle_states.append(bs)
 
-    async def processbm_title(self, bm: BattleMessage_title) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_title(self, bm: battlemessage.BattleMessage_title) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_title): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_join(self, bm: BattleMessage_join) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_join(self, bm: battlemessage.BattleMessage_join) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_join): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_leave(self, bm: BattleMessage_leave) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_leave(self, bm: battlemessage.BattleMessage_leave) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_leave): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_raw(self, bm: BattleMessage_raw) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_raw(self, bm: battlemessage.BattleMessage_raw) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_raw): The battlemessage, after being parsed as a BattleMessage.
         """
 
-    async def processbm_anim(self, bm: BattleMessage_anim) -> None:
-        """
-        Processes this message to update the current battle state
+    async def processbm_anim(self, bm: battlemessage.BattleMessage_anim) -> None:
+        """Process the BattleMessage, updating the BattleState.
+
+        Args:
+            bm (battlemessage.BattleMessage_anim): The battlemessage, after being parsed as a BattleMessage.
         """
