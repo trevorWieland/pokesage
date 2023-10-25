@@ -5,6 +5,8 @@ description = "Pokemon Playing AI training tools built with a modern, async, typ
 authors = ["Trevor Wieland <trevor_wieland@mac.com>"]
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/trevorWieland/pokesage"
+documentation = "https://trevorwieland.github.io/pokesage/"
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.13"
