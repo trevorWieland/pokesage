@@ -1994,17 +1994,15 @@ name = "poketypes"
 version = "0.2.1"
 description = "Automated classes with full typehinting support for pokemon, abilities, items, and so much more"
 optional = false
-python-versions = ">=3.9,<3.13"
-files = []
-develop = false
+python-versions = ">=3.9,<4.0"
+files = [
+    {file = "poketypes-0.2.1-py3-none-any.whl", hash = "sha256:ad75a76f27c1a3ae55f544a062d5c20816761a043e9f9931709fd634aa1b872d"},
+    {file = "poketypes-0.2.1.tar.gz", hash = "sha256:35df22f7da843e582e570aead73a05c3df34cf1ed6c0a94822b46c331e02247d"},
+]
 
 [package.dependencies]
-protobuf = "^4.24.4"
-pydantic = "^2.4.2"
-
-[package.source]
-type = "directory"
-url = "../poketypes"
+protobuf = ">=4.24.4,<5.0.0"
+pydantic = ">=2.4.2,<3.0.0"
 
 [[package]]
 name = "prometheus-client"
@@ -3310,4 +3308,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.13"
-content-hash = "efec3f5b9d2c7cb0f1d3439436b654a44379e25d9f149083704dd9b6fc44ab49"
+content-hash = "b8115af0ef9c23df5e8fcd0579485f6a8f03c76a002b2ff41cb038918bc99242"

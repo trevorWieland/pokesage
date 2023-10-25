@@ -13,8 +13,8 @@ python = ">=3.9,<3.13"
 pydantic = "^2.4.2"
 aiohttp = "3.9.0b0"
 tqdm = "^4.66.1"
-poketypes = {path = "../poketypes"}
 beartype = "^0.16.2"
+poketypes = "^0.2.1"
 
 [tool.poetry.group.dev]
 optional = true
