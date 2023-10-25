@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pokesage"
-version = "0.1.4"
+version = "0.2.0"
 description = "Pokemon Playing AI training tools built with a modern, async, type-hinting stack"
 authors = ["Trevor Wieland <trevor_wieland@mac.com>"]
 license = "MIT"

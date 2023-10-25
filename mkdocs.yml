@@ -1,0 +1,53 @@
+site_name: Pokesage Docs
+site_description: "Pokemon Playing AI training tools built with a modern, async, type-hinting stack."
+repo_url: "https://github.com/trevorWieland/pokesage"
+repo_name: "trevorWieland/pokesage"
+copyright: Copyright &copy; 2023 Trevor Wieland
+
+theme:
+  name: "material"
+  features:
+  - announce.dismiss
+  - content.code.annotate
+  - content.code.copy
+  - content.tooltips
+  - navigation.footer
+  - navigation.indexes
+  - navigation.sections
+  - navigation.tabs
+  - navigation.tabs.sticky
+  - navigation.top
+  - search.highlight
+  - search.suggest
+  - toc.follow
+  palette:
+    scheme: slate
+    primary: deep purple
+    accent: purple
+
+plugins:
+  - mkdocstrings
+  - search
+
+nav:
+  - Home:
+    - Home: 'index.md'
+    - Getting Started: 'getting-started.md'
+    - Project Flow: 'project-flow.md'
+    - About:
+      - The Team: 'about/about.md'
+      - License: 'about/license.md'
+      - Changelog: 'about/changelog.md'
+      - Contributing: 'about/contributing.md'
+  - Guides:
+    - Basics: 'guides/basics.md'
+    - Custom Sage: 'guides/custom-sage.md'
+    - AI-Sage: 'guides/sage-training.md'
+    - API Usage: 'guides/api-usage.md'
+    - CLI Usage: 'guides/cli-usage.md'
+  - Reference:
+    - 'reference/battle.md'
+    - 'reference/connectors.md'
+    - 'reference/processors.md'
+    - 'reference/sages.md'
+  - Poketypes: 'https://trevorwieland.github.io/poketypes/'
