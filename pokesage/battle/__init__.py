@@ -1,3 +1,10 @@
+"""Battle data structures for PokeSage.
+
+Classes:
+    Battle: Class for storing battle data.
+    BattleState: Class for storing battle state data.
+"""
+
 from .battle import Battle
 from .choices import (
     AnyChoice,

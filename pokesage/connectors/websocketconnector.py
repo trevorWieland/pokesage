@@ -1,3 +1,5 @@
+"""Connector class for using the Showdown Websocket Simulator as a backend."""
+
 import json
 import os
 from beartype.typing import AsyncGenerator, Dict, List, Literal, Optional, Tuple, Type, Union
@@ -8,7 +10,6 @@ from poketypes.showdown.showdownmessage import (
     Message,
     Message_challstr,
     MType,
-    Message_updateuser,
     Message_updatesearch,
 )
 from yarl import URL
@@ -22,11 +23,54 @@ from .abstractconnector import ConnectionTermination, ConnectionTerminationCode,
 
 
 class WebsocketConnector(Connector):
-    """
-    An abstract class defining function headers mandatory for connector objects
+    """Connector class for using the Showdown Websocket Simulator as a backend.
 
-    Since the entrypoint for the user is the sage class, the sage class should create the aiohttp session,
-    so that all downstream connections use the same async connection pool
+    Tip:
+        Since the entrypoint for the user is the sage class, the sage class should create the aiohttp session,
+        so that all downstream connections use the same async connection pool.
+
+    Args:
+        showdown_username (str): The username to use for logging in to showdown
+        showdown_password (str): The password to use for logging in to showdown
+        target_format (str): The format to use for this connection
+        gametype (Literal["singles", "doubles", "triples"]): The gametype to use for this connection
+        objective (Literal["accept", "challenge", "ladder"]): The objective to use for this connection
+        whitelist_users (Optional[List[str]], optional): A list of users to challenge if the objective is challenge.
+            Defaults to [].
+        max_concurrent_battles (int, optional): The maximum number of concurrent battles to have at once.
+            Defaults to 1.
+        total_battles (int, optional): The total number of battles to play. Defaults to 1.
+        processor_class (Type[ShowdownProcessor], optional): The processor class to use for this connection.
+            Defaults to ShowdownProcessor.
+        showdown_uri (str, optional): The uri to use for connecting to showdown.
+            Defaults to "ws://localhost:8000/showdown/websocket".
+        save_logs (bool, optional): Whether to save logs for each battle. Defaults to False.
+        save_json (bool, optional): Whether to save json dumps for each battle. Defaults to False.
+
+    Attributes:
+        showdown_username: The username to use for logging in to showdown
+        showdown_password: The password to use for logging in to showdown
+        target_format: The format to use for this connection
+        gametype: The gametype to use for this connection
+        objective: The objective to use for this connection
+        whitelist_users: A list of users to challenge if the objective is challenge.
+        max_concurrent_battles: The maximum number of concurrent battles to have at once.
+        total_battles: The total number of battles to play.
+        processor_class: The processor class to use for this connection.
+        showdown_uri: The uri to use for connecting to showdown.
+        save_logs: Whether to save logs for each battle.
+        save_json: Whether to save json dumps for each battle.
+        logged_in: Whether we have logged in to showdown yet.
+        last_search: The last updatesearch message we received.
+        valid_formats: The list of valid formats for this connection.
+        pending_challenges: A dictionary of pending challenges we have sent, mapping the target user to the format.
+        battle_processors: A dictionary of battle processors we have created, mapping the battle id to the processor.
+        completed_battles: A dictionary of completed battles we have finished, mapping the battle id to the battle.
+        pending_battle_amt: The number of battles we have pending.
+        active_battle_amt: The number of battles we have active.
+
+    Raises:
+        RuntimeError: If the objective is set to challenge but no users are in the whitelist.
     """
 
     def __init__(
@@ -36,7 +80,7 @@ class WebsocketConnector(Connector):
         target_format: str,
         gametype: Literal["singles", "doubles", "triples"],
         objective: Literal["accept", "challenge", "ladder"],
-        whitelist_users: List[str] = [],
+        whitelist_users: Optional[List[str]] = None,
         max_concurrent_battles: int = 1,
         total_battles: int = 1,
         processor_class: Type[ShowdownProcessor] = ShowdownProcessor,
@@ -44,10 +88,6 @@ class WebsocketConnector(Connector):
         save_logs: bool = False,
         save_json: bool = False,
     ) -> None:
-        """
-        Save connection parameters so that the connection can be initialized later
-        """
-
         self.showdown_username = showdown_username
         self.showdown_password = showdown_password
         self.target_format = target_format
@@ -55,11 +95,9 @@ class WebsocketConnector(Connector):
         self.objective = objective
 
         if self.objective == "challenge" and len(whitelist_users) == 0:
-            raise RuntimeError(
-                "Objective was set to challenge but no users were in the whitelist! Please add at least one user to the list!"
-            )
+            raise RuntimeError("Objective was set to challenge but no users were in the whitelist!")
 
-        self.whitelist_users = whitelist_users
+        self.whitelist_users = whitelist_users if whitelist_users is not None else []
         self.max_concurrent_battles = max_concurrent_battles
         self.total_battles = total_battles
         self.processor_class = processor_class
@@ -82,14 +120,24 @@ class WebsocketConnector(Connector):
     async def launch_connection(
         self, session: ClientSession
     ) -> AsyncGenerator[Tuple[ProgressState, Union[BattleState, ConnectionTermination, None]], AnyChoice]:
-        """
-        This function should be an async generator that:
-        - yields BattleState
-        - accepts Choice as send (See Choice type alias for options)
+        """Launch the connector as an async generator.
 
-        This function should be instantiated by the connection handling subclass, not the sage
-        """
+        Tip:
+            This function is an async generator that:
+            * yields BattleState
+            * accepts AnyChoice as asend (See AnyChoice type alias for options)
 
+            You should use this generator by calling `asend` on it, and then passing the action you want to take. If
+            no action is needed at the time, this would mean sending None.
+
+        Args:
+            session (ClientSession): An aiohttp session to use for making requests as needed.
+
+        Yields:
+            Tuple[ProgressState, Union[BattleState, ConnectionTermination, None]]:
+                * ProgressState: The current progress state of the connection
+                * Union[BattleState, ConnectionTermination, None]: The current data for this progress state
+        """
         conn_term = None
 
         async with session.ws_connect(self.showdown_uri) as ws:
@@ -153,13 +201,21 @@ class WebsocketConnector(Connector):
     async def handle_general_message(
         self, session: ClientSession, ws: ClientWebSocketResponse, message: str
     ) -> Tuple[ProgressState, Optional[ConnectionTermination]]:
-        """
-        Handles general messages given by the showdown server.
+        """Handle a general message given by the showdown server.
 
-        This ranges from login strings to battle requests. This is where most of our administrative tasks should be done.
+        This ranges from login strings to battle requests. This is where our administrative tasks should be done.
         Battle-specific tasks (other than original creation) should be handled as part of `handle_battle_message`
-        """
 
+        Args:
+            session (ClientSession): An aiohttp session to use for making requests as needed.
+            ws (ClientWebSocketResponse): The websocket connection to showdown.
+            message (str): The message to handle.
+
+        Returns:
+            Tuple[ProgressState, Optional[ConnectionTermination]]:
+                * ProgressState: The current progress state of the connection
+                * Optional[ConnectionTermination]: Any connection termination information, if needed
+        """
         msg = Message.from_message(message)
 
         if msg.MTYPE == MType.updateuser:
@@ -204,12 +260,18 @@ class WebsocketConnector(Connector):
     async def handle_updatesearch(
         self, session: ClientSession, ws: ClientWebSocketResponse, message: Message_updatesearch
     ) -> Optional[ConnectionTermination]:
-        """
-        Handles the updatesearch message. This is one of the main objective-processing points, the other being `pm`
+        """Handle the updatesearch message.
 
-        Returns either None, or a ConnectionTermination if the objective is completed
-        """
+        This is one of the main objective-processing points, the other being `pm`.
 
+        Args:
+            session (ClientSession): An aiohttp session to use for making requests as needed.
+            ws (ClientWebSocketResponse): The websocket connection to showdown.
+            message (Message_updatesearch): The updatesearch message to handle.
+
+        Returns:
+            Optional[ConnectionTermination]: Any connection termination information, if needed
+        """
         if len(self.completed_battles.keys()) >= self.total_battles and message.GAMES is None:
             # In this case we've completed the needed amount and all games are over
             return ConnectionTermination(
@@ -253,24 +315,33 @@ class WebsocketConnector(Connector):
         ws: ClientWebSocketResponse,
         message: Message_challstr,
     ) -> None:
-        """
-        Handles the challengestr login flow.
+        """Handle the challengestr login flow.
 
         Sends a request to showdown's official login site with the user/pass/challstr to get a login token first
         Then sends that login token to the target showdown websocket to validate username selection
 
-        Returns None, but raises a runtime error if the login fails
-        """
+        Args:
+            session (ClientSession): An aiohttp session to use for making requests as needed.
+            ws (ClientWebSocketResponse): The websocket connection to showdown.
+            message (Message_challstr): The challengestr message to handle.
 
-        # TODO: Do some better especping for the user/pass
+        Raises:
+            RuntimeError: If the login fails
+        """
+        # TODO: Do some better char escaping for the user/pass
         params = {
             "name": quote(self.showdown_username).replace("-", "%2D"),
             "pass": quote(self.showdown_password),
             "challstr": message.CHALLSTR.strip(),
         }
 
+        uri_str = (
+            "https://play.pokemonshowdown.com/api/login?"
+            f"name={params['name']}&pass={params['pass']}&challstr={params['challstr']}"
+        )
+
         url = URL(
-            f"https://play.pokemonshowdown.com/api/login?name={params['name']}&pass={params['pass']}&challstr={params['challstr']}",
+            uri_str,
             encoded=True,
         )
 
@@ -292,12 +363,20 @@ class WebsocketConnector(Connector):
         battle_id: str,
         message: str,
     ) -> Tuple[ProgressState, Optional[BattleState]]:
-        """
-        Handles battle-specific messages. Mostly serves to pass messages to the corresponding processor for the battle.
+        """Handle battle-specific messages.
 
-        If the battle has already been completed, we will skip all messages afterwards by returning None for the battle state
-        """
+        Mostly serves to pass messages to the corresponding processor for the battle.
 
+        Args:
+            session (ClientSession): An aiohttp session to use for making requests as needed.
+            ws (ClientWebSocketResponse): The websocket connection to showdown.
+            battle_id (str): The id of the battle to handle.
+            message (str): The message to handle.
+
+        Returns:
+            Tuple[ProgressState, Optional[BattleState]]: The resulting progress state and battle state, if any.
+                If the battle has already concluded with a win/loss, the battle state will be None.
+        """
         if battle_id in self.completed_battles.keys():
             return ProgressState.NO_ACTION, None
 
@@ -319,11 +398,20 @@ class WebsocketConnector(Connector):
         action: AnyChoice,
         battle_id: Optional[str] = None,
     ) -> Optional[ConnectionTermination]:
-        """
-        This function will process the action based on the current progress state, closing any connections as needed
-        All action verification is handled later in `submit_action`, this just looks at progress_state and determines what to do
-        """
+        """Process the action based on the current progress state, closing any connections as needed.
 
+        All action verification is handled later in `submit_action`, this just looks at progress_state and determines
+        what to do.
+
+        Args:
+            ws (ClientWebSocketResponse): The websocket connection to showdown.
+            progress_state (ProgressState): The current progress state of the connection
+            action (AnyChoice): The action to submit.
+            battle_id (Optional[str], optional): The id of the battle to submit the action to, if any.
+
+        Returns:
+            Optional[ConnectionTermination]:
+        """
         if progress_state == ProgressState.FULL_END:
             # Process any final logging / closing operations needed if any (e.g. resign from all ongoing battles)
             # TODO
@@ -334,7 +422,7 @@ class WebsocketConnector(Connector):
             if self.save_logs:
                 os.makedirs(f"logs/{self.target_format}/", exist_ok=True)
                 with open(f"logs/{self.target_format}/{battle_id}.log", "w", encoding="utf8") as f:
-                    f.writelines([f"{l}\n" for l in self.battle_processors[battle_id].log])
+                    f.writelines([f"{line}\n" for line in self.battle_processors[battle_id].log])
 
             if self.save_json:
                 os.makedirs(f"logs/{self.target_format}/", exist_ok=True)
@@ -361,15 +449,25 @@ class WebsocketConnector(Connector):
         action: AnyChoice,
         battle_id: Optional[str] = None,
     ) -> Optional[ConnectionTermination]:
-        """
-        This function will:
-        - Verify that the action(s) returned the by the user is valid to submit at this time
-        - Submit it to showdown
+        """Submit an action to the showdown server.
 
-        It will not check if a given move is a legal move, because that step should be done by the processor
-        at choice-build time
-        """
+        Note:
+            This function will:
+            * Verify that the action(s) returned the by the user is valid to submit at this time
+            * Submit it to showdown
 
+            This will not check if a given move is a legal move, because that step should be done by the processor
+            at choice-build time. This will only check if the action is a valid action-type to submit at this time.
+
+        Args:
+            ws (ClientWebSocketResponse): The websocket connection to showdown.
+            progress_state (ProgressState): The current progress state of the connection
+            action (AnyChoice): The action to submit.
+            battle_id (Optional[str], optional): The id of the battle to submit the action to, if any.
+
+        Returns:
+            Optional[ConnectionTermination]: Any connection termination information, if needed
+        """
         # Handle quit and resign options first since they are the simple cases
         if is_bearable(action, QuitChoice):
             # Process all-resignation decision

@@ -747,6 +747,38 @@ pycodestyle = ">=2.11.0,<2.12.0"
 pyflakes = ">=3.1.0,<3.2.0"
 
 [[package]]
+name = "flake8-async"
+version = "22.11.14"
+description = "A flake8 plugin that checks bad async / asyncio practices"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "flake8-async-22.11.14.tar.gz", hash = "sha256:b4db2d55883653b47d4bfd946fdf506e8958bb4ca35974790b8c3e620fc1abff"},
+    {file = "flake8_async-22.11.14-py3-none-any.whl", hash = "sha256:317cf0f882a2f4a09c2250c451acff8358d7faec8a0aa54521b6e69336fe9d0b"},
+]
+
+[package.dependencies]
+flake8 = "*"
+
+[[package]]
+name = "flake8-bugbear"
+version = "23.9.16"
+description = "A plugin for flake8 finding likely bugs and design problems in your program. Contains warnings that don't belong in pyflakes and pycodestyle."
+optional = false
+python-versions = ">=3.8.1"
+files = [
+    {file = "flake8-bugbear-23.9.16.tar.gz", hash = "sha256:90cf04b19ca02a682feb5aac67cae8de742af70538590509941ab10ae8351f71"},
+    {file = "flake8_bugbear-23.9.16-py3-none-any.whl", hash = "sha256:b182cf96ea8f7a8595b2f87321d7d9b28728f4d9c3318012d896543d19742cb5"},
+]
+
+[package.dependencies]
+attrs = ">=19.2.0"
+flake8 = ">=6.0.0"
+
+[package.extras]
+dev = ["coverage", "hypothesis", "hypothesmith (>=0.2)", "pre-commit", "pytest", "tox"]
+
+[[package]]
 name = "flake8-pydocstyle"
 version = "0.2.2"
 description = "flake8 plugin that integrates pydocstyle"
@@ -3278,4 +3310,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.13"
-content-hash = "3bc8731c4eb9416da4e37b5b9a5ef076aa593c5c74e12068343d586cf6bc7ff8"
+content-hash = "efec3f5b9d2c7cb0f1d3439436b654a44379e25d9f149083704dd9b6fc44ab49"
