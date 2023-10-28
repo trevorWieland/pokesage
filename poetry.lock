@@ -1991,13 +1991,13 @@ testing = ["pytest", "pytest-benchmark"]
 
 [[package]]
 name = "poketypes"
-version = "0.2.1"
+version = "0.2.6"
 description = "Automated classes with full typehinting support for pokemon, abilities, items, and so much more"
 optional = false
-python-versions = ">=3.9,<4.0"
+python-versions = ">=3.9,<3.13"
 files = [
-    {file = "poketypes-0.2.1-py3-none-any.whl", hash = "sha256:ad75a76f27c1a3ae55f544a062d5c20816761a043e9f9931709fd634aa1b872d"},
-    {file = "poketypes-0.2.1.tar.gz", hash = "sha256:35df22f7da843e582e570aead73a05c3df34cf1ed6c0a94822b46c331e02247d"},
+    {file = "poketypes-0.2.6-py3-none-any.whl", hash = "sha256:a533e6b4ed43d489d962f73ab6ba6b01098adf2ea88a033180949dd7b015b5ec"},
+    {file = "poketypes-0.2.6.tar.gz", hash = "sha256:1ede28792d9d5739cf44fd4c4434b7417cdf2d51c0238dec27cedd38db704157"},
 ]
 
 [package.dependencies]

@@ -238,23 +238,23 @@ class BattlePokemon(BaseModel):
     def to_id(self) -> str:
         """Extract an id for this pokemon based on currently known information.
 
-        When a player has multiple mostly-identical pokemon (basespecies, forme, level, gender, nickname) this breaks
+        When a player has multiple mostly-identical pokemon (basespecies, forme, gender, nickname) this breaks
 
         Returns:
             str: An id for this pokemon
         """
-        id_str = f"{self.player_id}_{self.species}_{self.level}_{self.gender}_{self.nickname}"
+        id_str = f"{self.player_id}_{self.species}_{self.gender}_{self.nickname}"
 
         return id_str
 
     def to_base_id(self) -> str:
         """Extract an id for this pokemon based on currently known base-level information.
 
-        When a player has multiple partially-identical pokemon (basespecies, level, gender) this breaks
+        When a player has multiple partially-identical pokemon (basespecies, gender, nickname) this breaks
 
         Returns:
             str: An id for this pokemon
         """
-        id_str = f"{self.player_id}_{self.base_species}_{self.level}_{self.gender}_None"
+        id_str = f"{self.player_id}_{self.base_species}_{self.gender}_{self.nickname}"
 
         return id_str

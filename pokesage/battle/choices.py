@@ -9,6 +9,8 @@ from beartype.typing import List, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from poketypes.dex import DexMoveTarget
+
 
 class TeamChoice(BaseModel):
     """Base Model representing a team order decision.
@@ -45,6 +47,7 @@ class MoveChoice(BaseModel):
     Attributes:
         move_number: The 1-indexed position of the move
         target_number: The 1-indexed target of the move, if needed.
+        target_type: The target type of the move. Can be None if you can't target anything. (Locked into Outrage, etc)
         tera: Whether this choice involves teratyping first
         mega: Whether this choice involves mega-evolving first
         dyna: Whether this choice involves dynamaxing first
@@ -52,6 +55,11 @@ class MoveChoice(BaseModel):
     """
 
     move_number: int = Field(..., description="The 1-indexed position of the move")
+
+    target_type: Optional[DexMoveTarget.ValueType] = Field(
+        ...,
+        description="The target type of the move. Can be None if you can't target anything. (Locked into Outrage, etc)",
+    )
 
     target_number: Optional[int] = Field(None, description="The 1-indexed target of the move, if needed.")
 
@@ -132,6 +140,14 @@ class PassChoice(BaseModel):
     it makes action shapes consistent to require it
     """
 
+    def to_showdown(self) -> str:
+        """Convert the choice to a showdown-formatted decision.
+
+        Returns:
+            str: The showdown-formatted decision
+        """
+        return "pass"
+
 
 class ResignChoice(BaseModel):
     """Base Model representing the option to resign.
@@ -140,12 +156,28 @@ class ResignChoice(BaseModel):
     individual battle, but not irrecoverably for all battles.
     """
 
+    def to_showdown(self) -> str:
+        """Convert the choice to a showdown-formatted decision.
+
+        Returns:
+            str: The showdown-formatted decision
+        """
+        return "forfeit"
+
 
 class QuitChoice(BaseModel):
     """Base Model representing the option to resign all games and close connection.
 
     Used for type-hinting consistency, and for connectors to gracefully terminate when a sage-class fails irrecoverably.
     """
+
+    def to_showdown(self) -> str:
+        """Convert the choice to a showdown-formatted decision.
+
+        Returns:
+            str: The showdown-formatted decision
+        """
+        return "forfeit"
 
 
 class DefaultChoice(BaseModel):
@@ -182,8 +214,9 @@ BattleChoice = Union[
 ]
 
 TeamOrderChoice = Union[TeamChoice, ResignChoice, DefaultChoice, QuitChoice]
+SlotChoice = Union[MoveChoice, SwitchChoice, ItemChoice, PassChoice]
 MoveDecisionChoice = Union[
-    List[Union[MoveChoice, SwitchChoice, ItemChoice, PassChoice]],
+    List[SlotChoice],
     ResignChoice,
     DefaultChoice,
     QuitChoice,

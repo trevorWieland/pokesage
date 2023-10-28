@@ -13,6 +13,7 @@ from poketypes.showdown import battlemessage, BattleMessage, BMType
 
 from ..battle import BattleAbility, BattleItem, BattleMove, BattlePokemon, BattleState, StatBlock
 from ..battle.choices import MoveChoice, PassChoice, SwitchChoice, TeamChoice, AnyChoice
+from ..battle.utilities import get_valid_target_slots, needs_target
 from .abstractprocessor import Processor, ProgressState
 
 
@@ -618,9 +619,9 @@ class ShowdownProcessor(Processor):
                     active=bm_poke.ACTIVE,
                 )
 
-                current_state.player_team[poke.to_id()] = poke
+                current_state.player_team[poke.to_base_id()] = poke
             else:
-                poke_id = f"{bm.PLAYER}_{bm_poke.SPECIES}_{bm_poke.LEVEL}_{bm_poke.GENDER}_{bm_poke.IDENT.IDENTITY}"
+                poke_id = f"{bm.PLAYER}_{clean_forme(bm_poke.SPECIES)}_{bm_poke.GENDER}_{bm_poke.IDENT.IDENTITY}"
                 poke = current_state.player_team[poke_id]
 
                 poke.max_hp = bm_poke.MAX_HP if bm_poke.MAX_HP is not None else poke.max_hp
@@ -679,11 +680,11 @@ class ShowdownProcessor(Processor):
             for p in current_state.player_team.values()
             if (p.status != DexStatus.STATUS_FNT and not p.active)
         ]
-        # revive_options = [
-        #    SwitchChoice(slot=p.team_pos)
-        #    for p in current_state.player_team.values()
-        #    if (p.status == DexStatus.STATUS_FNT and not p.active)
-        # ]
+        revive_options = [
+            SwitchChoice(slot=p.team_pos)
+            for p in current_state.player_team.values()
+            if (p.status == DexStatus.STATUS_FNT)
+        ]
 
         if bm.REQUEST_TYPE == "FORCESWITCH":
             # If the request type is a forceswitch, then we have already identified every option the player has
@@ -691,7 +692,11 @@ class ShowdownProcessor(Processor):
             choices = []
             for i in range(self.battle.slot_length()):
                 if bm.FORCESWITCH_SLOTS[i]:
-                    choices.append(switch_options)
+                    slot_poke = current_state.player_slots[i + 1]
+                    if slot_poke is not None and current_state.player_team[slot_poke].is_reviving:
+                        choices.append(revive_options)
+                    else:
+                        choices.append(switch_options)
                 else:
                     choices.append(PassChoice())
 
@@ -720,23 +725,23 @@ class ShowdownProcessor(Processor):
                     continue
 
                 # Since the request comes before we see any switches, we have to process valid targets later in `turn`
-                mo = MoveChoice(move_number=move_num + 1)
+                mo = MoveChoice(move_number=move_num + 1, target_type=m_data.TARGET)
                 move_options.append(mo)
 
-                if ao.CAN_TERA:
-                    mo = MoveChoice(move_number=move_num + 1, tera=True)
+                if ao.CAN_TERA and not current_state.player_has_teratyped:
+                    mo = MoveChoice(move_number=move_num + 1, tera=True, target_type=m_data.TARGET)
                     move_options.append(mo)
 
-                if ao.CAN_MEGA:
-                    mo = MoveChoice(move_number=move_num + 1, mega=True)
+                if ao.CAN_MEGA and not current_state.player_has_megad:
+                    mo = MoveChoice(move_number=move_num + 1, mega=True, target_type=m_data.TARGET)
                     move_options.append(mo)
 
-                if ao.CAN_DYNA:
-                    mo = MoveChoice(move_number=move_num + 1, dyna=True)
+                if m_data.CAN_DYNAMAX and not current_state.player_has_dynamaxed:
+                    mo = MoveChoice(move_number=move_num + 1, dyna=True, target_type=m_data.DYNAMAX_TARGET)
                     move_options.append(mo)
 
-                if ao.CAN_ZMOVE:
-                    mo = MoveChoice(move_number=move_num + 1, zmove=True)
+                if m_data.CAN_ZMOVE and not current_state.player_has_zmoved:
+                    mo = MoveChoice(move_number=move_num + 1, zmove=True, target_type=m_data.ZMOVE_TARGET)
                     move_options.append(mo)
 
             if not ao.TRAPPED:
@@ -779,7 +784,44 @@ class ShowdownProcessor(Processor):
         self.battle.turn = bm.NUMBER
 
         # We need to process valid targets here, as this will happen `after` any switches are made
-        # TODO: process move target options
+        if self.battle.gametype == "singles":
+            return
+
+        cur_state = self.battle.battle_states[-1]
+        if isinstance(cur_state.battle_choice, TeamChoice):
+            return
+
+        filled_slots = [-1 * slot_id for slot_id, slot_poke in cur_state.player_slots.items() if slot_poke is not None]
+        filled_slots += [slot_id for slot_id, slot_poke in cur_state.opponent_slots.items() if slot_poke is not None]
+
+        cleaned_options = []
+        for e, slot_choice_options in enumerate(cur_state.battle_choice):
+            if isinstance(slot_choice_options, PassChoice) or cur_state.player_slots[e + 1] is None:
+                cleaned_options.append(PassChoice())
+                continue
+            cleaned_slot_options = []
+            for slot_choice in slot_choice_options:
+                if isinstance(slot_choice, MoveChoice):
+                    if not needs_target(slot_choice.target_type):
+                        cleaned_slot_options.append(slot_choice)
+                        continue
+
+                    targettable_list = get_valid_target_slots(
+                        -1 * (e + 1), filled_slots, slot_choice.target_type, self.battle.gametype
+                    )
+                    for target_slot in targettable_list:
+                        m = MoveChoice(
+                            move_number=slot_choice.move_number,
+                            target_number=target_slot,
+                            target_type=slot_choice.target_type,
+                        )
+                        cleaned_slot_options.append(m)
+
+                else:
+                    cleaned_slot_options.append(slot_choice)
+            cleaned_options.append(cleaned_slot_options)
+        cur_state.battle_choice = cleaned_options
+        self.battle.battle_states[-1] = cur_state
 
     async def processbm_win(self, bm: battlemessage.BattleMessage_win) -> None:
         """Process the BattleMessage, updating the BattleState.
@@ -831,11 +873,10 @@ class ShowdownProcessor(Processor):
         """
         # TODO: Figure out a way of supporting duplicate base species w/ different nicknames
         # Maybe a numbering system based on appearance?
-        # Current setup breaks when a pokemon changes forme back to a basespecies
-        # Current setup also relies on perfect accounting of slot information
+        # Current setup relies on perfect accounting of slot information
 
-        full_ident = f"{bm.POKEMON.PLAYER}_{bm.SPECIES}_{bm.LEVEL}_{bm.GENDER}_{bm.POKEMON.IDENTITY}"
-        base_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.LEVEL}_{bm.GENDER}_None"
+        full_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.GENDER}_{bm.POKEMON.IDENTITY}"
+        base_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.GENDER}_None"
 
         slot = bm.POKEMON.SLOT
         assert slot is not None
@@ -845,15 +886,20 @@ class ShowdownProcessor(Processor):
         current_state = self.battle.battle_states[-1]
 
         if full_ident in current_state.player_team.keys():
-            # Process this as a player slot switch
+            # Check if there was already a pokemon in this slot, and if so, update its slot and active status
             if current_state.player_slots[slot] is not None:
                 old_poke_id = current_state.player_slots[slot]
                 current_state.player_team[old_poke_id].slot = None
                 current_state.player_team[old_poke_id].active = False
+            else:
+                old_poke_id = None
 
             current_state.player_team[full_ident].slot = slot
             current_state.player_team[full_ident].active = True
             current_state.player_slots[slot] = full_ident
+
+            self.log.append(f"# In slot {slot}, swapping out {old_poke_id} for {full_ident}")
+            self.log.append("# " + ",".join([f"{k} - {v}" for k, v in current_state.player_slots.items()]))
         elif full_ident in current_state.opponent_team.keys():
             # Process this as an opponent slot switch
             # This also means this is a pokemon we have seen before from the opponent
@@ -922,8 +968,8 @@ class ShowdownProcessor(Processor):
         Args:
             bm (battlemessage.BattleMessage_drag): The battlemessage, after being parsed as a BattleMessage.
         """
-        full_ident = f"{bm.POKEMON.PLAYER}_{bm.SPECIES}_{bm.LEVEL}_{bm.GENDER}_{bm.POKEMON.IDENTITY}"
-        base_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.LEVEL}_{bm.GENDER}_None"
+        full_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.GENDER}_{bm.POKEMON.IDENTITY}"
+        base_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.GENDER}_None"
 
         slot = bm.POKEMON.SLOT
         assert slot is not None
@@ -938,10 +984,15 @@ class ShowdownProcessor(Processor):
                 old_poke_id = current_state.player_slots[slot]
                 current_state.player_team[old_poke_id].slot = None
                 current_state.player_team[old_poke_id].active = False
+            else:
+                old_poke_id = None
 
             current_state.player_team[full_ident].slot = slot
             current_state.player_team[full_ident].active = True
             current_state.player_slots[slot] = full_ident
+
+            self.log.append(f"# In slot {slot}, swapping out {old_poke_id} for {full_ident}")
+            self.log.append("# " + ",".join([f"{k} - {v}" for k, v in current_state.player_slots.items()]))
         elif full_ident in current_state.opponent_team.keys():
             # Process this as an opponent slot switch
             # This also means this is a pokemon we have seen before from the opponent
@@ -1010,7 +1061,7 @@ class ShowdownProcessor(Processor):
         Args:
             bm (battlemessage.BattleMessage_detailschange): The battlemessage, after being parsed as a BattleMessage.
         """
-        full_ident = f"{bm.POKEMON.PLAYER}_{bm.SPECIES}_{bm.LEVEL}_{bm.GENDER}_{bm.POKEMON.IDENTITY}"
+        full_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.GENDER}_{bm.POKEMON.IDENTITY}"
 
         slot = bm.POKEMON.SLOT
         assert slot is not None
@@ -1031,6 +1082,9 @@ class ShowdownProcessor(Processor):
 
             current_state.player_team[full_ident] = poke
             current_state.player_slots[slot] = full_ident
+
+            self.log.append(f"# In slot {slot}, changing forme of {old_poke_id} to {full_ident}")
+            self.log.append("# " + ",".join([f"{k} - {v}" for k, v in current_state.player_slots.items()]))
         else:
             # Process this as a opponent update
             assert current_state.opponent_slots[slot] is not None, "Failed to setup slots before change occured"
@@ -1051,7 +1105,77 @@ class ShowdownProcessor(Processor):
 
         Args:
             bm (battlemessage.BattleMessage_replace): The battlemessage, after being parsed as a BattleMessage.
+
+        Raises:
+            RuntimeError: If there are more than 1 pokemon with the ability Illusion.
         """
+        # At bare minimum, we need to correct the slot information. Ideally we would also backtrack here and update
+        # all of the information we have learned for the old_slot_poke and move it to the new_slot_poke
+
+        full_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.GENDER}_{bm.POKEMON.IDENTITY}"
+
+        slot = bm.POKEMON.SLOT
+        assert slot is not None
+
+        slot = "abc".find(slot) + 1
+
+        current_state = self.battle.battle_states[-1]
+
+        if bm.POKEMON.PLAYER == self.battle.player_id:
+            # Process this as a player update
+            assert current_state.player_slots[slot] is not None, "Failed to setup slots before replace occured"
+
+            old_poke_id = current_state.player_slots[slot]
+
+            old_poke_match = [k for k, v in current_state.player_slots.items() if k != slot and v == old_poke_id]
+
+            if len(old_poke_match) == 0:
+                # This means that the real version of the pokemon is not out on the field right now.
+                current_state.player_team[old_poke_id].slot = None
+            elif len(old_poke_match) == 1:
+                # This means that the real version of the pokemon is out on the field right now.
+                current_state.player_team[old_poke_id].slot = old_poke_match[0]
+            else:
+                # This means that there are somehow more than 1 illusioned version, which is not currently supported
+                raise RuntimeError("More than 1 pokemon with the ability Illusion!")
+
+            current_state.player_slots[slot] = full_ident
+            self.log.append(f"# In slot {slot}, revealing that {old_poke_id} was really {full_ident}")
+            self.log.append("# " + ",".join([f"{k} - {v}" for k, v in current_state.player_slots.items()]))
+        else:
+            # Process this as a opponent update
+            assert current_state.opponent_slots[slot] is not None, "Failed to setup slots before replace occured"
+
+            old_poke_id = current_state.opponent_slots[slot]
+
+            old_poke_match = [k for k, v in current_state.opponent_slots.items() if k != slot and v == old_poke_id]
+
+            if len(old_poke_match) == 0:
+                # This means that the real version of the pokemon is not out on the field right now.
+                current_state.opponent_team[old_poke_id].slot = None
+            elif len(old_poke_match) == 1:
+                # This means that the real version of the pokemon is out on the field right now.
+                current_state.opponent_team[old_poke_id].slot = old_poke_match[0]
+            else:
+                # This means that there are somehow more than 1 illusioned version, which is not currently supported
+                raise RuntimeError("More than 1 pokemon with the ability Illusion!")
+
+            current_state.opponent_slots[slot] = full_ident
+
+            if full_ident not in current_state.opponent_team.keys():
+                base_ident = f"{bm.POKEMON.PLAYER}_{clean_forme(bm.SPECIES)}_{bm.GENDER}_None"
+                assert base_ident in current_state.opponent_team.keys(), "Failed to setup team before replace occured"
+
+                poke = current_state.opponent_team.pop(base_ident)
+                poke.base_species = clean_forme(bm.SPECIES)
+                poke.species = bm.SPECIES
+                poke.nickname = bm.POKEMON.IDENTITY
+                current_state.opponent_team[full_ident] = poke
+
+            # TODO: go back through an move all the information from the old_poke_id to the new_poke_id that was learned
+            # since the last switch in
+
+        self.battle.battle_states[-1] = current_state
 
     async def processbm_swap(self, bm: battlemessage.BattleMessage_swap) -> None:
         """Process the BattleMessage, updating the BattleState.
@@ -1115,6 +1239,37 @@ class ShowdownProcessor(Processor):
         Args:
             bm (battlemessage.BattleMessage_faint): The battlemessage, after being parsed as a BattleMessage.
         """
+        current_state = self.battle.battle_states[-1]
+
+        slot = bm.POKEMON.SLOT
+        assert slot is not None
+
+        slot = "abc".find(slot) + 1
+
+        if bm.POKEMON.PLAYER == self.battle.player_id:
+            # Process this as a player update
+            assert current_state.player_slots[slot] is not None, "Failed to setup slots before faint occured"
+
+            poke_id = current_state.player_slots[slot]
+
+            current_state.player_team[poke_id].status = DexStatus.STATUS_FNT
+            current_state.player_team[poke_id].active = False
+            current_state.player_team[poke_id].slot = None
+
+            current_state.player_slots[slot] = None
+        else:
+            # Process this as a opponent update
+            assert current_state.opponent_slots[slot] is not None, "Failed to setup slots before faint occured"
+
+            poke_id = current_state.opponent_slots[slot]
+
+            current_state.opponent_team[poke_id].status = DexStatus.STATUS_FNT
+            current_state.opponent_team[poke_id].active = False
+            current_state.opponent_team[poke_id].slot = None
+
+            current_state.opponent_slots[slot] = None
+
+        self.battle.battle_states[-1] = current_state
 
     async def processbm_fail(self, bm: battlemessage.BattleMessage_fail) -> None:
         """Process the BattleMessage, updating the BattleState.
@@ -1278,6 +1433,31 @@ class ShowdownProcessor(Processor):
         Args:
             bm (battlemessage.BattleMessage_terastallize): The battlemessage, after being parsed as a BattleMessage.
         """
+        current_state = self.battle.battle_states[-1]
+
+        slot = bm.POKEMON.SLOT
+        slot = "abc".find(slot) + 1
+
+        if bm.POKEMON.PLAYER == self.battle.player_id:
+            # Process this as a player update
+            assert current_state.player_slots[slot] is not None, "Failed to setup slots before tera occured"
+
+            poke_id = current_state.player_slots[slot]
+
+            current_state.player_team[poke_id].tera_type = bm.TYPE
+            current_state.player_team[poke_id].is_tera = True
+            current_state.player_has_teratyped = True
+        else:
+            # Process this as a opponent update
+            assert current_state.opponent_slots[slot] is not None, "Failed to setup slots before tera occured"
+
+            poke_id = current_state.opponent_slots[slot]
+
+            current_state.opponent_team[poke_id].tera_type = bm.TYPE
+            current_state.opponent_team[poke_id].is_tera = True
+            current_state.opponent_has_teratyped = True
+
+        self.battle.battle_states[-1] = current_state
 
     async def processbm_fieldend(self, bm: battlemessage.BattleMessage_fieldend) -> None:
         """Process the BattleMessage, updating the BattleState.
@@ -1398,6 +1578,31 @@ class ShowdownProcessor(Processor):
         Args:
             bm (battlemessage.BattleMessage_mega): The battlemessage, after being parsed as a BattleMessage.
         """
+        current_state = self.battle.battle_states[-1]
+
+        slot = bm.POKEMON.SLOT
+        slot = "abc".find(slot) + 1
+
+        if bm.POKEMON.PLAYER == self.battle.player_id:
+            # Process this as a player update
+            assert current_state.player_slots[slot] is not None, "Failed to setup slots before mega occured"
+
+            poke_id = current_state.player_slots[slot]
+
+            current_state.player_team[poke_id].is_mega = True
+            current_state.player_team[poke_id].possible_items = [BattleItem(name=bm.MEGA_STONE, probability=1.0)]
+            current_state.player_has_megad = True
+        else:
+            # Process this as a opponent update
+            assert current_state.opponent_slots[slot] is not None, "Failed to setup slots before mega occured"
+
+            poke_id = current_state.opponent_slots[slot]
+
+            current_state.opponent_team[poke_id].is_mega = True
+            current_state.opponent_team[poke_id].possible_items = [BattleItem(name=bm.MEGA_STONE, probability=1.0)]
+            current_state.opponent_has_megad = True
+
+        self.battle.battle_states[-1] = current_state
 
     async def processbm_primal(self, bm: battlemessage.BattleMessage_primal) -> None:
         """Process the BattleMessage, updating the BattleState.
@@ -1419,6 +1624,14 @@ class ShowdownProcessor(Processor):
         Args:
             bm (battlemessage.BattleMessage_zpower): The battlemessage, after being parsed as a BattleMessage.
         """
+        current_state = self.battle.battle_states[-1]
+
+        if bm.POKEMON.PLAYER == self.battle.player_id:
+            current_state.player_has_zmoved = True
+        else:
+            current_state.opponent_has_zmoved = True
+
+        self.battle.battle_states[-1] = current_state
 
     async def processbm_zbroken(self, bm: battlemessage.BattleMessage_zbroken) -> None:
         """Process the BattleMessage, updating the BattleState.
@@ -1545,12 +1758,11 @@ class ShowdownProcessor(Processor):
 
         Args:
             bm (BattleMessage): The battlemessage, after being parsed as a BattleMessage.
-
-        Raises:
-            RuntimeError: If this is recieved, `poketypes` was unable to identify the message. If the issues isn't due
-                to some sort of string cleaning issue, this is a bug with `poketypes`.
         """
-        raise RuntimeError(f"Received battle message that poketypes couldn't identify: {bm.BATTLE_MESSAGE}")
+        print(f"Received battle message that poketypes couldn't process: {bm.BATTLE_MESSAGE}, {bm.ERR_STATE}")
+        self.log.append(
+            f"# Received battle message that poketypes couldn't process: {bm.BATTLE_MESSAGE}, {bm.ERR_STATE}"
+        )
 
     async def processbm_init(self, bm: battlemessage.BattleMessage_init) -> None:
         """Process the BattleMessage, updating the BattleState.

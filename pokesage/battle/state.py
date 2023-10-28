@@ -56,6 +56,18 @@ class BattleState(BaseModel):
         {}, description="Maps the opponent's battle slots to either None or the string id of the pokemon in that slot"
     )
 
+    player_has_megad: bool = Field(False, description="Whether the player has mega evolved a pokemon")
+    opponent_has_megad: bool = Field(False, description="Whether the opponent has mega evolved a pokemon")
+
+    player_has_zmoved: bool = Field(False, description="Whether the player has used a zmove")
+    opponent_has_zmoved: bool = Field(False, description="Whether the opponent has used a zmove")
+
+    player_has_dynamaxed: bool = Field(False, description="Whether the player has dynamaxed a pokemon")
+    opponent_has_dynamaxed: bool = Field(False, description="Whether the opponent has dynamaxed a pokemon")
+
+    player_has_teratyped: bool = Field(False, description="Whether the player has teratyped a pokemon")
+    opponent_has_teratyped: bool = Field(False, description="Whether the opponent has teratyped a pokemon")
+
     weather: Optional[DexWeather.ValueType] = Field(None, description="The current weather in the field")
 
     battle_choice: Optional[BattleChoice] = Field(

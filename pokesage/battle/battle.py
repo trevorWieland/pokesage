@@ -55,8 +55,8 @@ class Battle(BaseModel):
         [],
         description="The ordered list of battle states as they were before a decision by the player",
     )
-    battle_actions: Optional[AnyChoice] = Field(
-        None,
+    battle_actions: List[AnyChoice] = Field(
+        [],
         description="The list of decisions the player made at each corresponding BattleState in battle_states",
     )
 
@@ -81,6 +81,8 @@ class Battle(BaseModel):
 
     player_team_size: Optional[int] = Field(None, description="The integer team size of the player")
     opponent_team_size: Optional[int] = Field(None, description="The integer team size of the opponent")
+
+    error_end: bool = Field(False, description="Whether this battle ended due to an error")
 
     def slot_length(self) -> int:
         """Identify the slot length based on the gametype.

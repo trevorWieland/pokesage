@@ -1,11 +1,20 @@
 """Abstract Sage class for other player classes to implement with their decision functions."""
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, List
 from tqdm.asyncio import tqdm
 from aiohttp import ClientSession
 
-from ..battle.choices import ForceSwitchChoice, MoveDecisionChoice, TeamOrderChoice
+from ..battle.choices import (
+    ForceSwitchChoice,
+    MoveDecisionChoice,
+    TeamOrderChoice,
+    SlotChoice,
+    SwitchChoice,
+    PassChoice,
+    ItemChoice,
+    MoveChoice,
+)
 from ..battle.state import BattleState
 from ..connectors import Connector
 from ..processors import ProgressState
@@ -170,3 +179,38 @@ class AbstractSage(ABC):
         Returns:
             ForceSwitchChoice: The switch(s) to make in this turn.
         """
+
+    def clean_choices(self, selected_choices: List[SlotChoice], slot_choices: List[SlotChoice]) -> List[SlotChoice]:
+        """Clean the slot choices to ensure that they are valid.
+
+        Args:
+            selected_choices (List[SlotChoice]): The currently selected choices
+            slot_choices (List[SlotChoice]): The available choices
+
+        Returns:
+            List[SlotChoice]: The cleaned choices
+        """
+        cleaned_choices = []
+        for slot_choice in slot_choices:
+            if isinstance(slot_choice, SwitchChoice) or isinstance(slot_choice, ItemChoice):
+                if slot_choice not in selected_choices:
+                    cleaned_choices.append(slot_choice)
+            elif isinstance(slot_choice, PassChoice):
+                cleaned_choices.append(slot_choice)
+            else:
+                if slot_choice.tera:
+                    if not any([c.tera for c in selected_choices if isinstance(c, MoveChoice)]):
+                        cleaned_choices.append(slot_choice)
+                elif slot_choice.zmove:
+                    if not any([c.zmove for c in selected_choices if isinstance(c, MoveChoice)]):
+                        cleaned_choices.append(slot_choice)
+                elif slot_choice.mega:
+                    if not any([c.mega for c in selected_choices if isinstance(c, MoveChoice)]):
+                        cleaned_choices.append(slot_choice)
+                elif slot_choice.dyna:
+                    if not any([c.dyna for c in selected_choices if isinstance(c, MoveChoice)]):
+                        cleaned_choices.append(slot_choice)
+                else:
+                    cleaned_choices.append(slot_choice)
+
+        return cleaned_choices
