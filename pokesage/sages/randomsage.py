@@ -12,7 +12,6 @@ from ..battle.choices import (
     TeamOrderChoice,
     TeamChoice,
     PassChoice,
-    SwitchChoice,
 )
 from ..battle.state import BattleState
 from .abstractsage import AbstractSage
@@ -71,8 +70,13 @@ class RandomSage(AbstractSage):
             if is_bearable(slot_choices, PassChoice):
                 selected_choices.append(slot_choices)
             else:
-                valid_choices = [c for c in slot_choices if (not is_bearable(c, SwitchChoice) or c not in slot_choices)]
-                selected_choices.append(valid_choices[random.randint(0, len(valid_choices) - 1)])
+                valid_choices = self.clean_choices(selected_choices, slot_choices)
+                if len(valid_choices) == 1:
+                    selected_choices.append(valid_choices[0])
+                elif len(valid_choices) == 0:
+                    selected_choices.append(PassChoice())
+                else:
+                    selected_choices.append(valid_choices[random.randint(0, len(valid_choices) - 1)])
 
         return selected_choices
 
@@ -96,14 +100,14 @@ class RandomSage(AbstractSage):
             if is_bearable(slot_choices, PassChoice):
                 selected_choices.append(slot_choices)
             else:
-                valid_choices = [c for c in slot_choices if (c not in selected_choices)]
+                valid_choices = self.clean_choices(selected_choices, slot_choices)
 
-                if len(valid_choices) == 0:
-                    print(slot_choices)
-                    print(selected_choices)
-                    print(valid_choices)
-
-                selected_choices.append(valid_choices[random.randint(0, len(valid_choices) - 1)])
+                if len(valid_choices) == 1:
+                    selected_choices.append(valid_choices[0])
+                elif len(valid_choices) == 0:
+                    selected_choices.append(PassChoice())
+                else:
+                    selected_choices.append(valid_choices[random.randint(0, len(valid_choices) - 1)])
 
         return selected_choices
 

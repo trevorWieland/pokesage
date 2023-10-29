@@ -385,7 +385,13 @@ class WebsocketConnector(Connector):
             self.processor_class(session, self.showdown_username, self.showdown_username),
         )
 
-        progress_state = await bp.process_message(message_str=message)
+        try:
+            progress_state = await bp.process_message(message_str=message)
+        except Exception as ex:
+            progress_state = ProgressState.GAME_END
+            bp.log.append(f">GAME-ENDING-ERROR: {type(ex)}: {ex}")
+            print(f"Battle {battle_id} ended due to an error: {type(ex)}: {ex}")
+            bp.battle.error_end = True
 
         self.battle_processors[battle_id] = bp
 
@@ -414,10 +420,35 @@ class WebsocketConnector(Connector):
         """
         if progress_state == ProgressState.FULL_END:
             # Process any final logging / closing operations needed if any (e.g. resign from all ongoing battles)
-            # TODO
+            for bat_id, bp in self.battle_processors.items():
+                if bat_id in self.completed_battles.keys():
+                    continue
+
+                bp.log.append(">ABRUPT-ENDING: USER/OBJECTIVE REQUESTED SHUTDOWN")
+
+                await ws.send_str(f"{bat_id}|/forfeit")
+                await ws.send_str(f"{bat_id}|/leave")
+
+                if self.save_logs:
+                    os.makedirs(f"logs/{self.target_format}/", exist_ok=True)
+                    with open(f"logs/{self.target_format}/{bat_id}.log", "w", encoding="utf8") as f:
+                        f.writelines([f"{line}\n" for line in bp.log])
+
+                if self.save_json:
+                    os.makedirs(f"logs/{self.target_format}/", exist_ok=True)
+                    with open(f"logs/{self.target_format}/{bat_id}.json", "w", encoding="utf8") as f:
+                        json.dump(bp.battle.model_dump(mode="json"), f)
+
+                self.completed_battles[bat_id] = bp.battle
 
             return ConnectionTermination(code=ConnectionTerminationCode.OBJECTIVE_COMPLETE)
         elif progress_state == ProgressState.GAME_END:
+            # Process forfeit if needed
+            if self.battle_processors[battle_id].battle.error_end:
+                await ws.send_str(f"{battle_id}|/forfeit")
+
+            await ws.send_str(f"{battle_id}|/leave")
+
             # Process game end movement
             if self.save_logs:
                 os.makedirs(f"logs/{self.target_format}/", exist_ok=True)
